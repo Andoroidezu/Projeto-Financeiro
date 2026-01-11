@@ -17,7 +17,12 @@ export default function Dashboard({
   setRefreshBalance,
 }) {
   const [page, setPage] = useState('home')
-  const [hasPending, setHasPending] = useState(false)
+
+  // ⚠️ avisos
+  const [hasPendingTransactions, setHasPendingTransactions] =
+    useState(false)
+  const [hasOpenInvoice, setHasOpenInvoice] =
+    useState(false)
 
   useEffect(() => {
     checkPendingTransactions()
@@ -33,26 +38,23 @@ export default function Dashboard({
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
 
+    // ⚠️ qualquer saída não paga (dinheiro OU cartão)
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, amount, paid, type')
+      .select('id, paid, type')
       .eq('user_id', user.id)
-      .eq('type', 'saida')          // 🔴 IGNORA ENTRADAS
-      .is('card_id', null)          // ignora cartão
+      .neq('type', 'entrada')
+      .eq('paid', false)
       .gte('date', start.toISOString().slice(0, 10))
       .lt('date', nextMonth.toISOString().slice(0, 10))
 
     if (error) {
       console.error(error)
-      setHasPending(false)
+      setHasPendingTransactions(false)
       return
     }
 
-    const has = (data || []).some(
-      t => t.paid === false || t.amount === null
-    )
-
-    setHasPending(has)
+    setHasPendingTransactions((data || []).length > 0)
   }
 
   async function handleLogout() {
@@ -74,7 +76,8 @@ export default function Dashboard({
           </button>
 
           <button onClick={() => setPage('transactions')}>
-            Lançamentos {hasPending && '⚠️'}
+            Lançamentos{' '}
+            {hasPendingTransactions && '⚠️'}
           </button>
 
           <button onClick={() => setPage('sporadic')}>
@@ -90,7 +93,8 @@ export default function Dashboard({
           </button>
 
           <button onClick={() => setPage('invoice')}>
-            Fatura do cartão
+            Fatura do cartão{' '}
+            {hasOpenInvoice && '⚠️'}
           </button>
 
           <button onClick={() => setPage('report')}>
@@ -125,10 +129,19 @@ export default function Dashboard({
       {page === 'cards' && <Cards />}
 
       {page === 'card-expense' && (
-        <CardExpense setRefreshBalance={setRefreshBalance} />
+        <CardExpense
+          currentMonth={currentMonth}
+          setRefreshBalance={setRefreshBalance}
+        />
       )}
 
-      {page === 'invoice' && <CardInvoice />}
+      {page === 'invoice' && (
+        <CardInvoice
+          currentMonth={currentMonth}
+          setRefreshBalance={setRefreshBalance}
+          setHasOpenInvoice={setHasOpenInvoice}
+        />
+      )}
 
       {page === 'report' && (
         <MonthlyReport currentMonth={currentMonth} />

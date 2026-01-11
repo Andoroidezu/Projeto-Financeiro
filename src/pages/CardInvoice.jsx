@@ -1,140 +1,154 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
-export default function CardInvoice() {
-  const [month, setMonth] = useState(
-    new Date().toISOString().slice(0, 7)
-  )
-
+export default function CardInvoice({
+  currentMonth,
+  setRefreshBalance,
+  setHasOpenInvoice,
+}) {
   const [cards, setCards] = useState([])
-  const [transactions, setTransactions] = useState([])
-  const [invoices, setInvoices] = useState([])
+  const [totals, setTotals] = useState({})
+  const [paidInvoices, setPaidInvoices] = useState({})
 
   useEffect(() => {
     fetchData()
-  }, [month])
+  }, [currentMonth])
 
   async function fetchData() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
+    if (!user) return
 
-    const [year, m] = month.split('-')
+    // cartões
+    const { data: cardData } = await supabase
+      .from('cards')
+      .select('*')
+      .eq('user_id', user.id)
+
+    setCards(cardData || [])
+
+    // faturas já pagas
+    const { data: invoiceData } = await supabase
+      .from('card_invoices')
+      .select('card_id')
+      .eq('user_id', user.id)
+      .eq('month', currentMonth)
+      .eq('paid', true)
+
+    const paidMap = {}
+    invoiceData?.forEach(i => {
+      paidMap[i.card_id] = true
+    })
+    setPaidInvoices(paidMap)
+
+    // despesas de cartão NÃO PAGAS do mês
+    const [year, m] = currentMonth.split('-')
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
 
-    const { data: cardsData } = await supabase
-      .from('cards')
-      .select('*')
-
     const { data: txData } = await supabase
       .from('transactions')
-      .select('*')
+      .select('card_id, amount')
+      .eq('user_id', user.id)
       .not('card_id', 'is', null)
+      .eq('paid', false)
       .gte('date', start.toISOString().slice(0, 10))
       .lt('date', nextMonth.toISOString().slice(0, 10))
 
-    const { data: invoiceData } = await supabase
-      .from('card_invoices')
-      .select('*')
-      .eq('month', month)
-      .eq('user_id', user.id)
+    const totalMap = {}
 
-    setCards(cardsData || [])
-    setTransactions(txData || [])
-    setInvoices(invoiceData || [])
+    txData?.forEach(t => {
+      if (t.amount === null) return
+      totalMap[t.card_id] =
+        (totalMap[t.card_id] || 0) + Number(t.amount)
+    })
+
+    setTotals(totalMap)
+
+    // aviso global de fatura aberta/parcial
+    const hasOpen = Object.values(totalMap).some(v => v > 0)
+    setHasOpenInvoice?.(hasOpen)
   }
 
-  function getCardTransactions(cardId) {
-    return transactions.filter(t => t.card_id === cardId)
-  }
+  async function payInvoice(cardId) {
+    const total = totals[cardId]
+    if (!total || total === 0) return
 
-  function getInvoice(cardId) {
-    return invoices.find(
-      i => i.card_id === cardId && i.month === month
-    )
-  }
-
-  function getInvoiceTotal(cardId) {
-    return getCardTransactions(cardId).reduce(
-      (sum, t) => sum + Number(t.amount || 0),
-      0
-    )
-  }
-
-  async function markAsPaid(cardId) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
 
-    const existing = getInvoice(cardId)
-
-    if (existing?.paid) return
-
-    await supabase.from('card_invoices').upsert({
+    // registra pagamento (mesmo que já exista)
+    await supabase.from('card_invoices').insert({
       user_id: user.id,
       card_id: cardId,
-      month,
+      month: currentMonth,
       paid: true,
-      paid_at: new Date().toISOString(),
     })
 
+    // quita despesas daquele cartão no mês
+    const [year, m] = currentMonth.split('-')
+    const start = new Date(year, m - 1, 1)
+    const nextMonth = new Date(year, m, 1)
+
+    await supabase
+      .from('transactions')
+      .update({ paid: true })
+      .eq('user_id', user.id)
+      .eq('card_id', cardId)
+      .gte('date', start.toISOString().slice(0, 10))
+      .lt('date', nextMonth.toISOString().slice(0, 10))
+
     fetchData()
+    setRefreshBalance(v => v + 1)
   }
 
   return (
     <div className="card">
-      <h2>Fatura do cartão</h2>
-
-      <input
-        type="month"
-        value={month}
-        onChange={e => setMonth(e.target.value)}
-      />
+      <h2>Fatura do Cartão</h2>
 
       {cards.map(card => {
-        const cardTx = getCardTransactions(card.id)
-        if (cardTx.length === 0) return null
+        const total = totals[card.id] || 0
+        const hasPaidRecord = paidInvoices[card.id] === true
 
-        const invoice = getInvoice(card.id)
-        const paid = invoice?.paid
+        let status = '—'
+        let color = '#999'
 
-        const limit = Number(card.limit || 0)
-        const total = getInvoiceTotal(card.id)
-        const available = limit - total
+        if (total > 0 && !hasPaidRecord) {
+          status = 'ABERTA'
+          color = 'orange'
+        }
+
+        if (total === 0 && hasPaidRecord) {
+          status = 'PAGA'
+          color = 'green'
+        }
+
+        if (total > 0 && hasPaidRecord) {
+          status = 'PAGAMENTO PARCIAL ⚠️'
+          color = '#eab308'
+        }
 
         return (
           <div key={card.id} className="card">
-            <h3>{card.name}</h3>
+            <strong>{card.name}</strong>
+            <p>Mês: {currentMonth}</p>
 
-            <p><strong>Limite:</strong> R$ {limit.toFixed(2)}</p>
-            <p><strong>Total da fatura:</strong> R$ {total.toFixed(2)}</p>
             <p>
-              <strong>Limite disponível:</strong>{' '}
-              <span style={{ color: available >= 0 ? 'green' : 'red' }}>
-                R$ {available.toFixed(2)}
-              </span>
+              <strong>Total:</strong> R$ {total.toFixed(2)}
             </p>
 
-            {paid ? (
-              <p style={{ color: 'green' }}>
-                ✔ Fatura paga
-              </p>
-            ) : (
-              <button onClick={() => markAsPaid(card.id)}>
+            <p>
+              <strong>Status:</strong>{' '}
+              <span style={{ color }}>{status}</span>
+            </p>
+
+            {total > 0 && (
+              <button onClick={() => payInvoice(card.id)}>
                 Marcar fatura como paga
               </button>
             )}
-
-            <hr />
-
-            {cardTx.map(t => (
-              <div key={t.id} className="card">
-                <strong>{t.name}</strong>
-                <p>{t.date}</p>
-                <p>R$ {Number(t.amount || 0).toFixed(2)}</p>
-              </div>
-            ))}
           </div>
         )
       })}

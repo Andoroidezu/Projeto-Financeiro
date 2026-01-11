@@ -4,12 +4,10 @@ import { supabase } from '../supabase'
 export default function Transactions({
   currentMonth,
   setRefreshBalance,
+  setHasPending,
 }) {
   const [transactions, setTransactions] = useState([])
-  const [paidInvoices, setPaidInvoices] = useState([])
-
-  const [editingId, setEditingId] = useState(null)
-  const [amountInput, setAmountInput] = useState('')
+  const [cardsMap, setCardsMap] = useState({})
 
   useEffect(() => {
     fetchData()
@@ -21,11 +19,24 @@ export default function Transactions({
     } = await supabase.auth.getUser()
     if (!user) return
 
+    // Mapear cartões
+    const { data: cards } = await supabase
+      .from('cards')
+      .select('id, name')
+      .eq('user_id', user.id)
+
+    const map = {}
+    cards?.forEach(c => {
+      map[c.id] = c.name
+    })
+    setCardsMap(map)
+
+    // Buscar lançamentos do mês
     const [year, m] = currentMonth.split('-')
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
 
-    const { data: txData } = await supabase
+    const { data } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', user.id)
@@ -33,157 +44,120 @@ export default function Transactions({
       .lt('date', nextMonth.toISOString().slice(0, 10))
       .order('date', { ascending: true })
 
-    const { data: invoices } = await supabase
-      .from('card_invoices')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('month', currentMonth)
-      .eq('paid', true)
+    const list = data || []
+    setTransactions(list)
 
-    setTransactions(txData || [])
-    setPaidInvoices(invoices || [])
-  }
-
-  function isPaid(item) {
-    if (item.card_id) {
-      return paidInvoices.some(
-        inv => inv.card_id === item.card_id
-      )
-    }
-    return item.paid
-  }
-
-  function canEditAmount(item) {
-    return (
-      item.amount === null &&
-      item.type === 'saida' &&
-      !item.card_id &&
-      !isPaid(item)
+    // ⚠️ Aviso global (ignora entradas)
+    const hasPending = list.some(
+      t => t.type !== 'entrada' && !t.paid
     )
+    setHasPending?.(hasPending)
   }
 
-  function canMarkAsPaid(item) {
-    return (
-      item.type === 'saida' &&
-      !item.card_id &&
-      !item.paid &&
-      item.amount !== null
-    )
-  }
-
-  async function saveAmount(item) {
-    await supabase
-      .from('transactions')
-      .update({ amount: Number(amountInput) })
-      .eq('id', item.id)
-
-    setEditingId(null)
-    setAmountInput('')
-    fetchData()
-    setRefreshBalance(v => v + 1)
-  }
-
-  async function markAsPaid(item) {
+  async function markAsPaid(id) {
     await supabase
       .from('transactions')
       .update({ paid: true })
-      .eq('id', item.id)
+      .eq('id', id)
 
-    fetchData()
     setRefreshBalance(v => v + 1)
+    fetchData()
   }
 
-  async function deleteTransaction(item) {
-    if (!window.confirm('Excluir lançamento?')) return
+  async function deleteTransaction(id) {
+    const confirm = window.confirm(
+      'Deseja excluir este lançamento?'
+    )
+    if (!confirm) return
 
-    await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', item.id)
+    await supabase.from('transactions').delete().eq('id', id)
 
-    fetchData()
     setRefreshBalance(v => v + 1)
+    fetchData()
   }
 
   return (
     <div className="card">
       <h2>Lançamentos</h2>
 
-      {transactions.map(item => {
-        const paid = isPaid(item)
+      {transactions.length === 0 && (
+        <p>Nenhum lançamento neste mês.</p>
+      )}
+
+      {transactions.map(t => {
+        const isEntry = t.type === 'entrada'
+        const isCard = t.card_id !== null
+
+        const bgColor = isEntry
+          ? '#dcfce7' // verde claro
+          : '#fee2e2' // vermelho claro
 
         return (
           <div
-            key={item.id}
+            key={t.id}
             className="card"
             style={{
-              position: 'relative',
-              opacity: paid ? 0.6 : 1,
-              backgroundColor:
-                item.type === 'entrada'
-                  ? 'rgba(34,197,94,0.08)'
-                  : 'rgba(239,68,68,0.08)',
+              background: bgColor,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12,
             }}
           >
-            {/* EXCLUIR */}
+            <div>
+              <strong>{t.name}</strong>
+
+              <p style={{ fontSize: 13, opacity: 0.8 }}>
+                {t.date}
+              </p>
+
+              <p style={{ fontSize: 13 }}>
+                {isCard
+                  ? `Cartão: ${cardsMap[t.card_id] || '—'}`
+                  : 'Dinheiro / Conta'}
+              </p>
+
+              <p>
+                {t.amount === null
+                  ? 'Valor pendente'
+                  : `${isEntry ? '+' : '-'} R$ ${t.amount.toFixed(
+                      2
+                    )}`}
+              </p>
+
+              {/* ✅ SOMENTE despesas NÃO cartão */}
+              {!isEntry &&
+                !isCard &&
+                !t.paid &&
+                t.amount !== null && (
+                  <button
+                    onClick={() => markAsPaid(t.id)}
+                    style={{ marginTop: 4 }}
+                  >
+                    Marcar como pago
+                  </button>
+                )}
+
+              {t.paid && (
+                <p style={{ color: 'green', fontSize: 13 }}>
+                  ✔ Pago
+                </p>
+              )}
+            </div>
+
             <button
-              onClick={() => deleteTransaction(item)}
+              onClick={() => deleteTransaction(t.id)}
               style={{
-                position: 'absolute',
-                top: 6,
-                right: 6,
                 background: 'transparent',
                 border: 'none',
+                color: '#555',
+                fontSize: 18,
                 cursor: 'pointer',
               }}
+              title="Excluir lançamento"
             >
-              ❌
+              ✕
             </button>
-
-            <strong>{item.name}</strong>
-            <p>{item.date}</p>
-
-            <p>
-              {item.amount === null
-                ? 'Valor pendente'
-                : `${item.type === 'entrada' ? '+' : '-'} R$ ${item.amount}`}
-            </p>
-
-            {canEditAmount(item) && (
-              <button
-                onClick={() => {
-                  setEditingId(item.id)
-                  setAmountInput('')
-                }}
-              >
-                Informar valor
-              </button>
-            )}
-
-            {editingId === item.id && (
-              <>
-                <input
-                  type="number"
-                  value={amountInput}
-                  onChange={e =>
-                    setAmountInput(e.target.value)
-                  }
-                />
-                <button onClick={() => saveAmount(item)}>
-                  Salvar
-                </button>
-              </>
-            )}
-
-            {canMarkAsPaid(item) && (
-              <button onClick={() => markAsPaid(item)}>
-                Marcar como pago
-              </button>
-            )}
-
-            {paid && (
-              <p style={{ color: 'green' }}>✔ Pago</p>
-            )}
           </div>
         )
       })}

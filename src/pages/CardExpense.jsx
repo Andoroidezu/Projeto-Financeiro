@@ -31,11 +31,14 @@ export default function CardExpense({ setRefreshBalance }) {
     const inserts = []
 
     for (let i = 0; i < installments; i++) {
+      // usar data de hoje como data da compra (entra na fatura do mês atual)
+      const purchase = new Date()
       const date = new Date(
-        today.getFullYear(),
-        today.getMonth() + i,
-        card.due_day
+        purchase.getFullYear(),
+        purchase.getMonth() + i, // `i` para parcelas
+        purchase.getDate()
       )
+
 
       inserts.push({
         user_id: user.id,
