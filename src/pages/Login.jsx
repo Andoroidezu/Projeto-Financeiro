@@ -1,49 +1,68 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import Card from '../ui/Card'
 import Button from '../ui/Button'
-import { useToast } from '../ui/ToastProvider'
+
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 LOGIN & CADASTRO (FLUXO CORRETO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Este componente:
+- Controla login e cadastro
+- Valida email e senha
+- Dá feedback claro ao usuário
+- Não cria conta "fantasma"
+
+Regras:
+- Email e senha são obrigatórios
+- Cadastro e login são fluxos distintos
+*/
 
 export default function Login() {
+  const [mode, setMode] = useState('login') // login | signup
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState(null)
 
-  const { showToast } = useToast()
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setMessage(null)
 
-  async function handleLogin() {
-    setLoading(true)
-
-    const { error } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-    if (error) {
-      showToast(error.message, 'error')
-    } else {
-      showToast('Login realizado com sucesso', 'success')
+    if (!email || !password) {
+      setMessage('Informe email e senha.')
+      return
     }
 
-    setLoading(false)
-  }
-
-  async function handleRegister() {
     setLoading(true)
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    })
+    if (mode === 'login') {
+      const { error } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
 
-    if (error) {
-      showToast(error.message, 'error')
-    } else {
-      showToast(
-        'Conta criada! Faça login.',
-        'success'
-      )
+      if (error) {
+        setMessage('Email ou senha inválidos.')
+      }
+    }
+
+    if (mode === 'signup') {
+      const { data, error } =
+        await supabase.auth.signUp({
+          email,
+          password,
+        })
+
+      if (error) {
+        setMessage(error.message)
+      } else {
+        setMessage(
+          'Conta criada com sucesso. Você já pode entrar.'
+        )
+        setMode('login')
+      }
     }
 
     setLoading(false)
@@ -56,24 +75,35 @@ export default function Login() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 24,
+        background: 'var(--bg)',
       }}
     >
-      <Card style={{ width: 360 }}>
-        <div style={{ marginBottom: 20 }}>
-          <h1 style={{ fontSize: 22 }}>
-            Finance App
-          </h1>
-          <p className="text-muted">
-            Controle financeiro simples e moderno
-          </p>
-        </div>
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          width: 320,
+          padding: 24,
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <h2 style={{ marginBottom: 8 }}>
+          {mode === 'login'
+            ? 'Entrar'
+            : 'Criar conta'}
+        </h2>
 
         <input
           type="email"
           placeholder="Email"
           value={email}
           onChange={e => setEmail(e.target.value)}
+          required
+          style={inputStyle}
         />
 
         <input
@@ -81,27 +111,59 @@ export default function Login() {
           placeholder="Senha"
           value={password}
           onChange={e => setPassword(e.target.value)}
+          required
+          style={inputStyle}
         />
 
-        <div
+        {message && (
+          <div
+            style={{
+              fontSize: 13,
+              color: 'var(--text-muted)',
+            }}
+          >
+            {message}
+          </div>
+        )}
+
+        <Button type="submit" disabled={loading}>
+          {loading
+            ? 'Processando...'
+            : mode === 'login'
+            ? 'Entrar'
+            : 'Criar conta'}
+        </Button>
+
+        <button
+          type="button"
+          onClick={() =>
+            setMode(
+              mode === 'login' ? 'signup' : 'login'
+            )
+          }
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-muted)',
+            fontSize: 13,
+            cursor: 'pointer',
+            marginTop: 8,
           }}
         >
-          <Button onClick={handleLogin}>
-            {loading ? 'Entrando…' : 'Entrar'}
-          </Button>
-
-          <Button
-            variant="ghost"
-            onClick={handleRegister}
-          >
-            Criar conta
-          </Button>
-        </div>
-      </Card>
+          {mode === 'login'
+            ? 'Criar uma conta'
+            : 'Já tenho conta'}
+        </button>
+      </form>
     </div>
   )
+}
+
+const inputStyle = {
+  background: 'var(--bg)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  padding: '8px 10px',
+  color: 'var(--text)',
+  fontSize: 14,
 }

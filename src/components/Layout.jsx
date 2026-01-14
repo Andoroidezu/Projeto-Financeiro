@@ -1,36 +1,6 @@
 import { useEffect, useState } from 'react'
+import { supabase } from '../supabase'
 import Sidebar from './Sidebar'
-
-/*
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 GUIA DE CONTEXTO — LAYOUT & ANIMAÇÃO
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Este Layout é responsável por:
-- Estrutura principal do app (Sidebar + Conteúdo)
-- Barra superior (seletor de mês)
-- Animação suave de navegação entre páginas
-
-⚠️ IMPORTANTE:
-- A sidebar NÃO deve ser animada
-- Somente o conteúdo da página muda
-- A animação deve ser curta e discreta
-- Se quebrar a animação, o app continua funcionando
-
-💡 Estratégia usada:
-- Um container com "key" baseado na página atual
-- Sempre que a página muda, o container remonta
-- Ao montar, aplicamos um fade + slide leve
-
-Isso evita:
-- bibliotecas externas
-- estados globais desnecessários
-- efeitos colaterais
-
-Se você (ou outro chat) estiver lendo isso no futuro:
-👉 mexa aqui se quiser ajustar animação
-👉 NÃO mexa na Sidebar achando que é bug
-*/
 
 export default function Layout({
   children,
@@ -42,18 +12,30 @@ export default function Layout({
   const [animate, setAnimate] = useState(false)
 
   useEffect(() => {
-    // dispara animação sempre que a página muda
     setAnimate(false)
     const t = setTimeout(() => setAnimate(true), 10)
     return () => clearTimeout(t)
   }, [page])
 
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut()
+
+    if (error) {
+      console.error('Erro ao deslogar:', error)
+    }
+    // ⚠️ NÃO muda page
+    // ⚠️ NÃO navega
+    // App.jsx cuidará do resto
+  }
+
   return (
     <div style={{ display: 'flex' }}>
-      {/* SIDEBAR FIXA */}
-      <Sidebar page={page} setPage={setPage} />
+      <Sidebar
+        page={page}
+        setPage={setPage}
+        onLogout={handleLogout}
+      />
 
-      {/* ÁREA PRINCIPAL */}
       <main
         style={{
           flex: 1,

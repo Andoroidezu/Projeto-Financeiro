@@ -25,7 +25,11 @@ Se quiser ajustar sensação:
 - NÃO adicionar cores fortes
 */
 
-export default function Sidebar({ page, setPage }) {
+export default function Sidebar({
+  page,
+  setPage,
+  onLogout, // 👈 NOVO (sem impacto visual)
+}) {
   const primary = [
     { id: 'home', label: 'Visão geral' },
     { id: 'transactions', label: 'Lançamentos' },
@@ -69,7 +73,13 @@ export default function Sidebar({ page, setPage }) {
       </div>
 
       {/* PRIMARY */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <nav
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
         {primary.map(item => (
           <NavItem
             key={item.id}
@@ -84,7 +94,13 @@ export default function Sidebar({ page, setPage }) {
       <Divider />
 
       {/* SECONDARY */}
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <nav
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
         {secondary.map(item => (
           <NavItem
             key={item.id}
@@ -108,10 +124,10 @@ export default function Sidebar({ page, setPage }) {
 
       <div style={{ flex: 1 }} />
 
-      {/* LOGOUT */}
+      {/* LOGOUT — AGORA FUNCIONAL */}
       <Button
         variant="ghost"
-        onClick={() => setPage('logout')}
+        onClick={onLogout} // 👈 ÚNICA MUDANÇA REAL
       >
         Sair
       </Button>
