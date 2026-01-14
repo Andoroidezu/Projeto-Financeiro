@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import Card from '../ui/Card'
+import Button from '../ui/Button'
 
 export default function Cards() {
   const [cards, setCards] = useState([])
@@ -22,7 +24,6 @@ export default function Cards() {
     } = await supabase.auth.getUser()
     if (!user) return
 
-    // cartões
     const { data: cardData } = await supabase
       .from('cards')
       .select('*')
@@ -31,7 +32,6 @@ export default function Cards() {
 
     setCards(cardData || [])
 
-    // despesas de cartão NÃO PAGAS
     const { data: txData } = await supabase
       .from('transactions')
       .select('card_id, amount')
@@ -40,7 +40,6 @@ export default function Cards() {
       .eq('paid', false)
 
     const usedMap = {}
-
     txData?.forEach(t => {
       if (!t.amount) return
       usedMap[t.card_id] =
@@ -55,21 +54,8 @@ export default function Cards() {
 
     if (!name || !limit || !closingDay || !dueDay) {
       alert(
-        'Informe nome, limite, dia de fechamento e dia de vencimento'
+        'Informe nome, limite, dia de fechamento e vencimento'
       )
-      return
-    }
-
-    const closing = Number(closingDay)
-    const due = Number(dueDay)
-
-    if (
-      closing < 1 ||
-      closing > 31 ||
-      due < 1 ||
-      due > 31
-    ) {
-      alert('Dias devem ser entre 1 e 31')
       return
     }
 
@@ -81,8 +67,8 @@ export default function Cards() {
       user_id: user.id,
       name,
       limit_amount: Number(limit),
-      closing_day: closing,
-      due_day: due,
+      closing_day: Number(closingDay),
+      due_day: Number(dueDay),
     })
 
     if (error) {
@@ -90,7 +76,6 @@ export default function Cards() {
       return
     }
 
-    // reset form
     setName('')
     setLimit('')
     setClosingDay('')
@@ -101,118 +86,182 @@ export default function Cards() {
   }
 
   return (
-    <div className="card">
-      <h2>Cartões</h2>
+    <Card>
+      {/* HEADER */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+        }}
+      >
+        <h2 style={{ fontSize: 18 }}>Cartões</h2>
 
-      <div className="button-group">
-        <button onClick={() => setShowForm(!showForm)}>
+        <Button
+          variant="ghost"
+          onClick={() => setShowForm(!showForm)}
+        >
           {showForm ? 'Cancelar' : 'Novo cartão'}
-        </button>
+        </Button>
       </div>
 
+      {/* FORM */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="card">
-          <input
-            placeholder="Nome do cartão"
-            value={name}
-            onChange={e => setName(e.target.value)}
-          />
+        <Card style={{ marginBottom: 24 }}>
+          <form onSubmit={handleSubmit}>
+            <input
+              placeholder="Nome do cartão"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
 
-          <input
-            type="number"
-            placeholder="Limite"
-            value={limit}
-            onChange={e => setLimit(e.target.value)}
-          />
+            <input
+              type="number"
+              placeholder="Limite"
+              value={limit}
+              onChange={e => setLimit(e.target.value)}
+            />
 
-          <input
-            type="number"
-            placeholder="Dia de fechamento (1–31)"
-            min="1"
-            max="31"
-            value={closingDay}
-            onChange={e => setClosingDay(e.target.value)}
-          />
-
-          <input
-            type="number"
-            placeholder="Dia de vencimento (1–31)"
-            min="1"
-            max="31"
-            value={dueDay}
-            onChange={e => setDueDay(e.target.value)}
-          />
-
-          <button type="submit">Salvar</button>
-        </form>
-      )}
-
-      {cards.length === 0 && (
-        <p>Nenhum cartão cadastrado.</p>
-      )}
-
-      {cards.map(card => {
-        const limitValue = Number(card.limit_amount || 0)
-        const used = Number(usage[card.id] || 0)
-        const available = limitValue - used
-        const percent =
-          limitValue > 0
-            ? Math.round((used / limitValue) * 100)
-            : 0
-
-        return (
-          <div key={card.id} className="card">
-            <strong>{card.name}</strong>
-
-            <p>
-              Fecha dia: {card.closing_day} | Vence dia:{' '}
-              {card.due_day}
-            </p>
-
-            <p>
-              <strong>Limite total:</strong> R${' '}
-              {limitValue.toFixed(2)}
-            </p>
-
-            <p style={{ color: 'red' }}>
-              <strong>Usado:</strong> R${' '}
-              {used.toFixed(2)}
-            </p>
-
-            <p style={{ color: 'green' }}>
-              <strong>Disponível:</strong> R${' '}
-              {available.toFixed(2)}
-            </p>
-
-            {/* Barra de uso */}
             <div
               style={{
-                marginTop: 8,
-                height: 8,
-                width: '100%',
-                background: '#333',
-                borderRadius: 4,
-                overflow: 'hidden',
+                display: 'flex',
+                gap: 12,
               }}
             >
-              <div
-                style={{
-                  width: `${percent}%`,
-                  height: '100%',
-                  background:
-                    percent > 90
-                      ? '#ef4444'
-                      : percent > 70
-                        ? '#f59e0b'
-                        : '#22c55e',
-                }}
+              <input
+                type="number"
+                placeholder="Fechamento"
+                value={closingDay}
+                onChange={e =>
+                  setClosingDay(e.target.value)
+                }
+              />
+
+              <input
+                type="number"
+                placeholder="Vencimento"
+                value={dueDay}
+                onChange={e =>
+                  setDueDay(e.target.value)
+                }
               />
             </div>
 
-            <small>{percent}% do limite usado</small>
-          </div>
-        )
-      })}
-    </div>
+            <Button type="submit">
+              Salvar cartão
+            </Button>
+          </form>
+        </Card>
+      )}
+
+      {/* LISTA */}
+      {cards.length === 0 && (
+        <p className="text-muted">
+          Nenhum cartão cadastrado.
+        </p>
+      )}
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: 16,
+        }}
+      >
+        {cards.map(card => {
+          const limitValue = Number(
+            card.limit_amount || 0
+          )
+          const used = Number(usage[card.id] || 0)
+          const available = limitValue - used
+          const percent =
+            limitValue > 0
+              ? Math.round((used / limitValue) * 100)
+              : 0
+
+          let barColor = 'var(--success)'
+          if (percent > 70) barColor = 'var(--warning)'
+          if (percent > 90) barColor = 'var(--danger)'
+
+          return (
+            <Card key={card.id}>
+              <strong
+                style={{
+                  fontSize: 16,
+                  marginBottom: 6,
+                  display: 'block',
+                }}
+              >
+                {card.name}
+              </strong>
+
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  marginBottom: 12,
+                }}
+              >
+                Fecha dia {card.closing_day} · Vence dia{' '}
+                {card.due_day}
+              </div>
+
+              <div style={{ marginBottom: 8 }}>
+                <strong>
+                  Limite:{' '}
+                  R$ {limitValue.toFixed(2)}
+                </strong>
+              </div>
+
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                Usado: R$ {used.toFixed(2)}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                  marginBottom: 8,
+                }}
+              >
+                Disponível: R${' '}
+                {available.toFixed(2)}
+              </div>
+
+              {/* BARRA */}
+              <div
+                style={{
+                  height: 6,
+                  width: '100%',
+                  background: 'var(--border)',
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  marginBottom: 6,
+                }}
+              >
+                <div
+                  style={{
+                    width: `${percent}%`,
+                    height: '100%',
+                    background: barColor,
+                  }}
+                />
+              </div>
+
+              <small className="text-muted">
+                {percent}% do limite usado
+              </small>
+            </Card>
+          )
+        })}
+      </div>
+    </Card>
   )
 }

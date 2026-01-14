@@ -1,150 +1,130 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
-import Layout from '../components/Layout'
 
-import Commitments from './Commitments'
+import Layout from '../components/Layout'
 import Transactions from './Transactions'
 import Cards from './Cards'
-import CardExpense from './CardExpense'
 import CardInvoice from './CardInvoice'
 import MonthlyReport from './MonthlyReport'
+import Commitments from './Commitments'
 import SporadicTransaction from './SporadicTransaction'
+import CardExpense from './CardExpense'
 
-export default function Dashboard({
-  currentMonth,
-  setCurrentMonth,
-  refreshBalance,
-  setRefreshBalance,
-}) {
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 GUIA — DASHBOARD (ESTADO GLOBAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Este arquivo é o "cérebro" do app.
+
+Responsabilidades:
+- Controlar página ativa
+- Controlar mês ativo
+- Controlar cartão ativo (IMPORTANTÍSSIMO)
+- Forçar refresh de dados após ações críticas
+
+REGRA:
+Qualquer página que dependa de cartão
+DEVE receber activeCardId daqui.
+*/
+
+export default function Dashboard() {
   const [page, setPage] = useState('home')
 
-  // ⚠️ avisos
-  const [hasPendingTransactions, setHasPendingTransactions] =
-    useState(false)
-  const [hasOpenInvoice, setHasOpenInvoice] =
-    useState(false)
+  const [currentMonth, setCurrentMonth] = useState(
+    new Date().toISOString().slice(0, 7)
+  )
 
+  const [activeCardId, setActiveCardId] = useState(null)
+
+  const [refreshBalance, setRefreshBalance] = useState(0)
+
+  // 🔹 Buscar cartão ativo inicial
   useEffect(() => {
-    checkPendingTransactions()
-  }, [currentMonth, refreshBalance])
+    fetchDefaultCard()
+  }, [])
 
-  async function checkPendingTransactions() {
+  async function fetchDefaultCard() {
     const {
       data: { user },
     } = await supabase.auth.getUser()
     if (!user) return
 
-    const [year, m] = currentMonth.split('-')
-    const start = new Date(year, m - 1, 1)
-    const nextMonth = new Date(year, m, 1)
-
-    // ⚠️ qualquer saída não paga (dinheiro OU cartão)
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('id, paid, type')
+    const { data } = await supabase
+      .from('cards')
+      .select('id')
       .eq('user_id', user.id)
-      .neq('type', 'entrada')
-      .eq('paid', false)
-      .gte('date', start.toISOString().slice(0, 10))
-      .lt('date', nextMonth.toISOString().slice(0, 10))
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
 
-    if (error) {
-      console.error(error)
-      setHasPendingTransactions(false)
-      return
+    if (data) {
+      setActiveCardId(data.id)
     }
-
-    setHasPendingTransactions((data || []).length > 0)
-  }
-
-  async function handleLogout() {
-    await supabase.auth.signOut()
   }
 
   return (
     <Layout
+      page={page}
+      setPage={setPage}
       currentMonth={currentMonth}
       setCurrentMonth={setCurrentMonth}
-      refreshBalance={refreshBalance}
     >
-      <div className="card">
-        <h2>Dashboard</h2>
-
-        <div className="button-group">
-          <button onClick={() => setPage('commitments')}>
-            Compromissos
-          </button>
-
-          <button onClick={() => setPage('transactions')}>
-            Lançamentos{' '}
-            {hasPendingTransactions && '⚠️'}
-          </button>
-
-          <button onClick={() => setPage('sporadic')}>
-            Lançamento esporádico
-          </button>
-
-          <button onClick={() => setPage('cards')}>
-            Cartões
-          </button>
-
-          <button onClick={() => setPage('card-expense')}>
-            Despesa no cartão
-          </button>
-
-          <button onClick={() => setPage('invoice')}>
-            Fatura do cartão{' '}
-            {hasOpenInvoice && '⚠️'}
-          </button>
-
-          <button onClick={() => setPage('report')}>
-            Relatório
-          </button>
-
-          <button onClick={handleLogout}>Sair</button>
-        </div>
-      </div>
-
-      {page === 'commitments' && (
-        <Commitments
+      {page === 'home' && (
+        <MonthlyReport
           currentMonth={currentMonth}
-          setRefreshBalance={setRefreshBalance}
+          refreshBalance={refreshBalance}
         />
       )}
 
       {page === 'transactions' && (
         <Transactions
           currentMonth={currentMonth}
+          activeCardId={activeCardId}
+          setActiveCardId={setActiveCardId}
+          refreshBalance={refreshBalance}
           setRefreshBalance={setRefreshBalance}
         />
       )}
 
-      {page === 'sporadic' && (
-        <SporadicTransaction
-          currentMonth={currentMonth}
-          setRefreshBalance={setRefreshBalance}
-        />
-      )}
-
-      {page === 'cards' && <Cards />}
-
-      {page === 'card-expense' && (
-        <CardExpense
-          currentMonth={currentMonth}
-          setRefreshBalance={setRefreshBalance}
+      {page === 'cards' && (
+        <Cards
+          activeCardId={activeCardId}
+          setActiveCardId={setActiveCardId}
         />
       )}
 
       {page === 'invoice' && (
         <CardInvoice
           currentMonth={currentMonth}
+          activeCardId={activeCardId}
           setRefreshBalance={setRefreshBalance}
-          setHasOpenInvoice={setHasOpenInvoice}
+        />
+      )}
+
+      {page === 'commitments' && (
+        <Commitments
+          setRefreshBalance={setRefreshBalance}
+        />
+      )}
+
+      {page === 'sporadic' && (
+        <SporadicTransaction
+          setRefreshBalance={setRefreshBalance}
+        />
+      )}
+
+      {page === 'card-expense' && (
+        <CardExpense
+          setRefreshBalance={setRefreshBalance}
         />
       )}
 
       {page === 'report' && (
-        <MonthlyReport currentMonth={currentMonth} />
+        <MonthlyReport
+          currentMonth={currentMonth}
+          refreshBalance={refreshBalance}
+        />
       )}
     </Layout>
   )

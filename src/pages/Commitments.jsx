@@ -1,46 +1,69 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import Card from '../ui/Card'
+import Button from '../ui/Button'
+import { useToast } from '../ui/ToastProvider'
+
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 GUIA DE CONTEXTO — PÁGINA RECORRENTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Esta página é o MODELO de UX do app.
+
+Objetivo:
+- Gerenciar despesas/entradas recorrentes (mensais)
+- Ex: aluguel, internet, salário, assinaturas
+
+Padrão adotado aqui:
+1. Header com contexto (o que é / quando usar)
+2. Ação principal clara (criar recorrente)
+3. Lista separada, sem competir visualmente
+
+Se esta página estiver bem:
+👉 Esporádicos e Compra parcelada devem copiar este formato
+*/
 
 export default function Commitments({
   currentMonth,
   setRefreshBalance,
 }) {
-  const [commitments, setCommitments] = useState([])
+  const [items, setItems] = useState([])
   const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState(null)
 
   const [name, setName] = useState('')
-  const [expectedDay, setExpectedDay] = useState('')
-  const [isVariable, setIsVariable] = useState(true)
-  const [defaultAmount, setDefaultAmount] = useState('')
+  const [amount, setAmount] = useState('')
+  const [type, setType] = useState('saida')
+
+  const { showToast } = useToast()
 
   useEffect(() => {
-    fetchCommitments()
-  }, [])
+    fetchData()
+  }, [currentMonth])
 
-  async function fetchCommitments() {
-    const { data, error } = await supabase
+  async function fetchData() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data } = await supabase
       .from('commitments')
       .select('*')
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
-    if (!error) setCommitments(data || [])
-  }
-
-  function startEdit(item) {
-    setEditingId(item.id)
-    setName(item.name)
-    setExpectedDay(item.expected_day)
-    setIsVariable(item.is_variable)
-    setDefaultAmount(item.default_amount ?? '')
-    setShowForm(true)
+    setItems(data || [])
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
 
-    if (!name || !expectedDay) {
-      alert('Preencha nome e dia')
+    if (!name || !amount) {
+      showToast(
+        'Informe nome e valor do recorrente',
+        'warning'
+      )
       return
     }
 
@@ -48,197 +71,184 @@ export default function Commitments({
       data: { user },
     } = await supabase.auth.getUser()
 
-    const payload = {
-      user_id: user.id,
-      name,
-      expected_day: Number(expectedDay),
-      is_variable: isVariable,
-      default_amount: isVariable ? null : Number(defaultAmount),
-      type: 'saida',
-    }
-
-    let error
-
-    if (editingId) {
-      ;({ error } = await supabase
-        .from('commitments')
-        .update(payload)
-        .eq('id', editingId))
-    } else {
-      ;({ error } = await supabase
-        .from('commitments')
-        .insert(payload))
-    }
+    const { error } = await supabase
+      .from('commitments')
+      .insert({
+        user_id: user.id,
+        name,
+        amount: Number(amount),
+        type,
+      })
 
     if (error) {
-      alert(error.message)
+      showToast('Erro ao criar recorrente', 'error')
       return
     }
 
-    // reset form
+    showToast('Recorrente criado com sucesso', 'success')
+
     setName('')
-    setExpectedDay('')
-    setDefaultAmount('')
-    setIsVariable(true)
-    setEditingId(null)
+    setAmount('')
+    setType('saida')
     setShowForm(false)
 
-    fetchCommitments()
+    setRefreshBalance(v => v + 1)
+    fetchData()
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('Deseja excluir este compromisso?')) return
+    if (
+      !window.confirm(
+        'Deseja remover este recorrente?'
+      )
+    )
+      return
 
-    const { error } = await supabase
+    await supabase
       .from('commitments')
       .delete()
       .eq('id', id)
 
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    fetchCommitments()
-  }
-
-  // 🔹 GERAR LANÇAMENTOS DO MÊS (corrigido)
-  async function generateMonthlyTransactions() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    const [year, month] = currentMonth.split('-')
-
-    const start = new Date(year, month - 1, 1)
-    const nextMonth = new Date(year, month, 1)
-
-    // buscar lançamentos já existentes no mês DO PRÓPRIO USUÁRIO
-    const { data: existing } = await supabase
-      .from('transactions')
-      .select('commitment_id')
-      .eq('user_id', user.id) // <<< ESSENCIAL
-      .gte('date', start.toISOString().slice(0, 10))
-      .lt('date', nextMonth.toISOString().slice(0, 10))
-
-    const existingIds = new Set(
-      (existing || []).map(t => t.commitment_id)
-    )
-
-    const inserts = commitments
-      .filter(c => !existingIds.has(c.id))
-      .map(c => ({
-        user_id: user.id,
-        name: `${c.name} ${month}/${year}`,
-        amount: c.is_variable ? null : c.default_amount,
-        type: c.type,
-        date: `${year}-${month}-${String(c.expected_day).padStart(2, '0')}`,
-        commitment_id: c.id,
-        paid: false,
-      }))
-
-    if (inserts.length === 0) {
-      alert('Os lançamentos deste mês já foram gerados.')
-      return
-    }
-
-    const { error } = await supabase
-      .from('transactions')
-      .insert(inserts)
-
-    if (error) {
-      alert('Erro ao gerar: ' + error.message)
-      return
-    }
-
-    setRefreshBalance(v => v + 1)
-    alert('Lançamentos gerados com sucesso!')
+    showToast('Recorrente removido', 'success')
+    fetchData()
   }
 
   return (
-    <div className="card">
-      <h2>Compromissos Mensais</h2>
+    <div style={{ maxWidth: 720 }}>
+      {/* HEADER */}
+      <Card>
+        <h2 style={{ fontSize: 20, marginBottom: 6 }}>
+          Recorrentes
+        </h2>
+        <p className="text-muted">
+          Entradas e saídas que se repetem todo
+          mês, como aluguel, salário ou
+          assinaturas.
+        </p>
+      </Card>
 
-      {/* BOTÃO GERAR LANÇAMENTOS */}
-      <div className="button-group">
-        <button onClick={generateMonthlyTransactions}>
-          Gerar lançamentos do mês
-        </button>
+      {/* AÇÃO PRINCIPAL */}
+      <Card>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: showForm ? 12 : 0,
+          }}
+        >
+          <strong>Criar recorrente</strong>
 
-        <button onClick={() => setShowForm(!showForm)}>
-          {showForm
-            ? 'Cancelar'
-            : editingId
-            ? 'Editando compromisso'
-            : 'Novo compromisso'}
-        </button>
-      </div>
+          <Button
+            variant="ghost"
+            onClick={() => setShowForm(!showForm)}
+          >
+            {showForm ? 'Cancelar' : 'Novo'}
+          </Button>
+        </div>
 
-      {showForm && (
-        <form onSubmit={handleSubmit} className="card">
-          <input
-            placeholder="Nome (ex: Luz, Internet)"
-            value={name}
-            onChange={e => setName(e.target.value)}
-          />
-
-          <input
-            type="number"
-            placeholder="Dia esperado do mês"
-            value={expectedDay}
-            onChange={e => setExpectedDay(e.target.value)}
-          />
-
-          <label>
+        {showForm && (
+          <form onSubmit={handleSubmit}>
             <input
-              type="checkbox"
-              checked={isVariable}
-              onChange={e => setIsVariable(e.target.checked)}
-            />{' '}
-            Valor variável
-          </label>
+              placeholder="Nome"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
 
-          {!isVariable && (
             <input
               type="number"
-              placeholder="Valor fixo"
-              value={defaultAmount}
-              onChange={e => setDefaultAmount(e.target.value)}
+              placeholder="Valor"
+              value={amount}
+              onChange={e =>
+                setAmount(e.target.value)
+              }
             />
-          )}
 
-          <div className="button-group">
-            <button type="submit">
-              {editingId ? 'Salvar alterações' : 'Salvar'}
-            </button>
-          </div>
-        </form>
-      )}
+            <select
+              value={type}
+              onChange={e => setType(e.target.value)}
+            >
+              <option value="saida">Saída</option>
+              <option value="entrada">
+                Entrada
+              </option>
+            </select>
 
-      {commitments.length === 0 && (
-        <p>Nenhum compromisso cadastrado.</p>
-      )}
+            <Button type="submit">
+              Salvar recorrente
+            </Button>
+          </form>
+        )}
+      </Card>
 
-      {commitments.map(item => (
-        <div key={item.id} className="card">
-          <strong>{item.name}</strong>
-          <p>Dia esperado: {item.expected_day}</p>
-          <p>
-            {item.is_variable
-              ? 'Valor variável'
-              : `Valor fixo: R$ ${item.default_amount}`}
+      {/* LISTA */}
+      <Card>
+        <strong style={{ display: 'block', marginBottom: 12 }}>
+          Recorrentes cadastrados
+        </strong>
+
+        {items.length === 0 && (
+          <p className="text-muted">
+            Nenhum recorrente cadastrado.
           </p>
+        )}
 
-          <div className="button-group">
-            <button onClick={() => startEdit(item)}>
-              Editar
-            </button>
-            <button onClick={() => handleDelete(item.id)}>
-              Excluir
-            </button>
-          </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          {items.map(item => (
+            <div
+              key={item.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 12px',
+                borderRadius: 6,
+                background: 'var(--bg-hover)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div>
+                <strong>{item.name}</strong>
+                <div
+                  className="text-muted"
+                  style={{ fontSize: 12 }}
+                >
+                  {item.type === 'entrada'
+                    ? 'Entrada mensal'
+                    : 'Saída mensal'}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <strong>
+                  R$ {item.amount.toFixed(2)}
+                </strong>
+
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    handleDelete(item.id)
+                  }
+                >
+                  ✕
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      </Card>
     </div>
   )
 }

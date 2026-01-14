@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import Card from '../ui/Card'
+import Button from '../ui/Button'
 
 export default function Transactions({
   currentMonth,
@@ -19,7 +21,7 @@ export default function Transactions({
     } = await supabase.auth.getUser()
     if (!user) return
 
-    // Mapear cartões
+    // cartões
     const { data: cards } = await supabase
       .from('cards')
       .select('id, name')
@@ -31,7 +33,7 @@ export default function Transactions({
     })
     setCardsMap(map)
 
-    // Buscar lançamentos do mês
+    // transações do mês
     const [year, m] = currentMonth.split('-')
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
@@ -42,12 +44,11 @@ export default function Transactions({
       .eq('user_id', user.id)
       .gte('date', start.toISOString().slice(0, 10))
       .lt('date', nextMonth.toISOString().slice(0, 10))
-      .order('date', { ascending: true })
+      .order('date', { ascending: false })
 
     const list = data || []
     setTransactions(list)
 
-    // ⚠️ Aviso global (ignora entradas)
     const hasPending = list.some(
       t => t.type !== 'entrada' && !t.paid
     )
@@ -65,102 +66,149 @@ export default function Transactions({
   }
 
   async function deleteTransaction(id) {
-    const confirm = window.confirm(
-      'Deseja excluir este lançamento?'
+    if (
+      !window.confirm(
+        'Deseja excluir este lançamento?'
+      )
     )
-    if (!confirm) return
+      return
 
-    await supabase.from('transactions').delete().eq('id', id)
+    await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id)
 
     setRefreshBalance(v => v + 1)
     fetchData()
   }
 
   return (
-    <div className="card">
-      <h2>Lançamentos</h2>
+    <Card>
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>
+        Lançamentos
+      </h2>
 
       {transactions.length === 0 && (
-        <p>Nenhum lançamento neste mês.</p>
+        <p className="text-muted">
+          Nenhum lançamento neste mês.
+        </p>
       )}
 
-      {transactions.map(t => {
-        const isEntry = t.type === 'entrada'
-        const isCard = t.card_id !== null
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
+        {transactions.map(t => {
+          const isEntry = t.type === 'entrada'
+          const isCard = t.card_id !== null
+          const valueColor = isEntry
+            ? 'var(--success)'
+            : 'var(--danger)'
 
-        const bgColor = isEntry
-          ? '#dcfce7' // verde claro
-          : '#fee2e2' // vermelho claro
+          return (
+            <div
+              key={t.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '12px 14px',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--bg-hover)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {/* ESQUERDA */}
+              <div>
+                <strong>{t.name}</strong>
 
-        return (
-          <div
-            key={t.id}
-            className="card"
-            style={{
-              background: bgColor,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 12,
-            }}
-          >
-            <div>
-              <strong>{t.name}</strong>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    marginTop: 2,
+                  }}
+                >
+                  {t.date} ·{' '}
+                  {isCard
+                    ? `Cartão: ${
+                        cardsMap[t.card_id] || '—'
+                      }`
+                    : 'Conta / Dinheiro'}
+                </div>
 
-              <p style={{ fontSize: 13, opacity: 0.8 }}>
-                {t.date}
-              </p>
-
-              <p style={{ fontSize: 13 }}>
-                {isCard
-                  ? `Cartão: ${cardsMap[t.card_id] || '—'}`
-                  : 'Dinheiro / Conta'}
-              </p>
-
-              <p>
-                {t.amount === null
-                  ? 'Valor pendente'
-                  : `${isEntry ? '+' : '-'} R$ ${t.amount.toFixed(
-                      2
-                    )}`}
-              </p>
-
-              {/* ✅ SOMENTE despesas NÃO cartão */}
-              {!isEntry &&
-                !isCard &&
-                !t.paid &&
-                t.amount !== null && (
-                  <button
-                    onClick={() => markAsPaid(t.id)}
-                    style={{ marginTop: 4 }}
+                {!isEntry && !t.paid && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--warning)',
+                    }}
                   >
-                    Marcar como pago
-                  </button>
+                    Pendente
+                  </span>
                 )}
 
-              {t.paid && (
-                <p style={{ color: 'green', fontSize: 13 }}>
-                  ✔ Pago
-                </p>
-              )}
-            </div>
+                {t.paid && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--success)',
+                    }}
+                  >
+                    Pago
+                  </span>
+                )}
+              </div>
 
-            <button
-              onClick={() => deleteTransaction(t.id)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#555',
-                fontSize: 18,
-                cursor: 'pointer',
-              }}
-              title="Excluir lançamento"
-            >
-              ✕
-            </button>
-          </div>
-        )
-      })}
-    </div>
+              {/* DIREITA */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <strong
+                  style={{
+                    color: valueColor,
+                    minWidth: 90,
+                    textAlign: 'right',
+                  }}
+                >
+                  {isEntry ? '+' : '-'} R${' '}
+                  {t.amount !== null
+                    ? t.amount.toFixed(2)
+                    : '—'}
+                </strong>
+
+                {!isEntry &&
+                  !isCard &&
+                  !t.paid &&
+                  t.amount !== null && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => markAsPaid(t.id)}
+                    >
+                      Pagar
+                    </Button>
+                  )}
+
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    deleteTransaction(t.id)
+                  }
+                >
+                  ✕
+                </Button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
   )
 }

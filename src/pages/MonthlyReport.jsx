@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
+import Card from '../ui/Card'
+
 import {
   Chart as ChartJS,
   LineElement,
   PointElement,
   LinearScale,
   CategoryScale,
+  Tooltip,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 
@@ -13,7 +16,8 @@ ChartJS.register(
   LineElement,
   PointElement,
   LinearScale,
-  CategoryScale
+  CategoryScale,
+  Tooltip
 )
 
 export default function MonthlyReport({ currentMonth }) {
@@ -42,23 +46,23 @@ export default function MonthlyReport({ currentMonth }) {
 
     const { data } = await supabase
       .from('transactions')
-      .select('id, name, date, amount, type, card_id')
+      .select('name, date, amount, type, card_id')
       .eq('user_id', user.id)
       .gte('date', start.toISOString().slice(0, 10))
       .lt('date', nextMonth.toISOString().slice(0, 10))
       .order('date', { ascending: true })
 
-    setTransactions(data || [])
+    const list = data || []
+    setTransactions(list)
 
     let income = 0
     let expense = 0
-    let biggest = null
     let balance = 0
+    let biggest = null
     const negativeDates = new Set()
 
-    data.forEach(t => {
+    list.forEach(t => {
       if (t.amount === null) return
-
       const value = Number(t.amount)
 
       if (t.type === 'entrada') {
@@ -76,9 +80,7 @@ export default function MonthlyReport({ currentMonth }) {
         }
       }
 
-      if (balance < 0) {
-        negativeDates.add(t.date)
-      }
+      if (balance < 0) negativeDates.add(t.date)
     })
 
     setTotalIn(income)
@@ -106,7 +108,7 @@ export default function MonthlyReport({ currentMonth }) {
 
     let balance = 0
     data?.forEach(t => {
-      if (t.amount === null) return
+      if (!t.amount) return
       balance +=
         t.type === 'entrada'
           ? t.amount
@@ -120,7 +122,8 @@ export default function MonthlyReport({ currentMonth }) {
 
   const variation =
     prevBalance !== null && prevBalance !== 0
-      ? ((balance - prevBalance) / Math.abs(prevBalance)) *
+      ? ((balance - prevBalance) /
+          Math.abs(prevBalance)) *
         100
       : null
 
@@ -143,81 +146,161 @@ export default function MonthlyReport({ currentMonth }) {
       labels,
       datasets: [
         {
-          label: 'Saldo acumulado',
           data: values,
-          borderColor: '#22c55e',
+          borderColor: '#6366f1',
           backgroundColor: 'transparent',
           tension: 0.3,
+          pointRadius: 0,
         },
       ],
     }
   }
 
   return (
-    <div className="card">
-      <h2>Relatório</h2>
+    <Card>
+      <h2 style={{ fontSize: 18, marginBottom: 16 }}>
+        Relatório mensal
+      </h2>
 
-      {/* RESUMO */}
-      <div className="summary-row">
-        <div>
-          <span>Entradas</span>
-          <strong className="positive">
-            R$ {totalIn.toFixed(2)}
-          </strong>
-        </div>
+      {/* KPIs */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 16,
+          marginBottom: 24,
+        }}
+      >
+        <Metric
+          label="Entradas"
+          value={`R$ ${totalIn.toFixed(2)}`}
+          color="var(--success)"
+        />
 
-        <div>
-          <span>Saídas</span>
-          <strong className="negative">
-            R$ {totalOut.toFixed(2)}
-          </strong>
-        </div>
+        <Metric
+          label="Saídas"
+          value={`R$ ${totalOut.toFixed(2)}`}
+          color="var(--danger)"
+        />
 
-        <div>
-          <span>Saldo</span>
-          <strong
-            className={balance >= 0 ? 'positive' : 'negative'}
-          >
-            R$ {balance.toFixed(2)}
-          </strong>
-        </div>
+        <Metric
+          label="Saldo"
+          value={`R$ ${balance.toFixed(2)}`}
+          color={
+            balance >= 0
+              ? 'var(--success)'
+              : 'var(--danger)'
+          }
+        />
+
+        <Metric
+          label="Variação mensal"
+          value={
+            variation === null
+              ? '—'
+              : `${variation >= 0 ? '▲' : '▼'} ${Math.abs(
+                  variation
+                ).toFixed(1)}%`
+          }
+          color={
+            variation >= 0
+              ? 'var(--success)'
+              : 'var(--danger)'
+          }
+        />
       </div>
 
-      {/* MÉTRICAS */}
-      <div className="summary-row">
-        <div>
-          <span>Variação vs mês anterior</span>
-          {variation === null ? (
-            <strong>—</strong>
-          ) : (
-            <strong
-              className={variation >= 0 ? 'positive' : 'negative'}
-            >
-              {variation >= 0 ? '▲' : '▼'}{' '}
-              {Math.abs(variation).toFixed(1)}%
-            </strong>
-          )}
-        </div>
-
-        <div>
-          <span>Maior gasto</span>
-          <strong>
-            {largestExpense
+      {/* INSIGHTS */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns:
+            'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 16,
+          marginBottom: 24,
+        }}
+      >
+        <Insight
+          title="Maior gasto (fora cartão)"
+          value={
+            largestExpense
               ? `${largestExpense.name} — R$ ${largestExpense.amount}`
-              : '—'}
-          </strong>
-        </div>
+              : '—'
+          }
+        />
 
-        <div>
-          <span>Dias no negativo</span>
-          <strong>{negativeDays}</strong>
-        </div>
+        <Insight
+          title="Dias no negativo"
+          value={negativeDays}
+        />
       </div>
 
       {/* GRÁFICO */}
-      <div className="chart-container">
-        <Line data={buildChartData()} />
+      <Card>
+        <Line
+          data={buildChartData()}
+          options={{
+            responsive: true,
+            plugins: {
+              legend: { display: false },
+            },
+            scales: {
+              x: {
+                ticks: { color: '#9ca3af' },
+                grid: { display: false },
+              },
+              y: {
+                ticks: { color: '#9ca3af' },
+                grid: {
+                  color: 'rgba(255,255,255,0.05)',
+                },
+              },
+            },
+          }}
+        />
+      </Card>
+    </Card>
+  )
+}
+
+function Metric({ label, value, color }) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--text-muted)',
+        }}
+      >
+        {label}
       </div>
+      <strong
+        style={{
+          fontSize: 18,
+          color,
+        }}
+      >
+        {value}
+      </strong>
+    </div>
+  )
+}
+
+function Insight({ title, value }) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--text-muted)',
+        }}
+      >
+        {title}
+      </div>
+      <strong style={{ fontSize: 15 }}>
+        {value}
+      </strong>
     </div>
   )
 }
