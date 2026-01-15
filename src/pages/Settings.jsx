@@ -3,12 +3,31 @@ import Button from '../ui/Button'
 import { supabase } from '../supabase'
 import { useToast } from '../ui/ToastProvider'
 
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 GUIA — CONFIGURAÇÕES DA CONTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Esta página contém ações AVANÇADAS e DESTRUTIVAS.
+
+REGRAS IMPORTANTES:
+- Reset geral SEMPRE deve existir aqui
+- Nunca mover esse botão para outro lugar
+- Nunca automatizar essa ação
+- Sempre exigir confirmação explícita
+
+Esta página é pensada para:
+- poucos usuários
+- ambiente controlado
+- máximo cuidado com dados
+*/
+
 export default function Settings() {
   const { showToast } = useToast()
 
   async function handleReset() {
     const confirm = window.confirm(
-      '⚠️ Isso irá apagar TODOS os seus dados financeiros.\n\nEssa ação não pode ser desfeita.\n\nDeseja continuar?'
+      '⚠️ ATENÇÃO\n\nIsso irá apagar TODOS os seus dados financeiros:\n\n- Lançamentos\n- Cartões\n- Parcelas\n- Recorrentes\n\nEssa ação NÃO pode ser desfeita.\n\nDeseja continuar?'
     )
 
     if (!confirm) return
@@ -20,9 +39,14 @@ export default function Settings() {
 
       if (!user) return
 
-      // ordem importa por causa de dependências
+      // ORDEM IMPORTA (dependências)
       await supabase
         .from('transactions')
+        .delete()
+        .eq('user_id', user.id)
+
+      await supabase
+        .from('installments')
         .delete()
         .eq('user_id', user.id)
 
@@ -59,7 +83,7 @@ export default function Settings() {
           Opções avançadas da conta
         </p>
 
-        {/* RESET */}
+        {/* RESET GERAL */}
         <div
           style={{
             padding: 16,
@@ -75,8 +99,9 @@ export default function Settings() {
             className="text-muted"
             style={{ marginBottom: 16 }}
           >
-            Apaga todos os lançamentos, cartões e
-            compromissos. A conta permanece ativa.
+            Apaga todos os lançamentos, cartões,
+            parcelas e compromissos. A conta
+            permanece ativa.
           </p>
 
           <Button

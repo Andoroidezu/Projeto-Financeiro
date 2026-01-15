@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 
 import Layout from '../components/Layout'
+import Home from './Home'
 import Transactions from './Transactions'
 import Cards from './Cards'
 import CardInvoice from './CardInvoice'
@@ -9,24 +10,7 @@ import MonthlyReport from './MonthlyReport'
 import Commitments from './Commitments'
 import SporadicTransaction from './SporadicTransaction'
 import CardExpense from './CardExpense'
-
-/*
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 GUIA — DASHBOARD (ESTADO GLOBAL)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Este arquivo é o "cérebro" do app.
-
-Responsabilidades:
-- Controlar página ativa
-- Controlar mês ativo
-- Controlar cartão ativo (IMPORTANTÍSSIMO)
-- Forçar refresh de dados após ações críticas
-
-REGRA:
-Qualquer página que dependa de cartão
-DEVE receber activeCardId daqui.
-*/
+import Settings from './Settings'
 
 export default function Dashboard() {
   const [page, setPage] = useState('home')
@@ -36,10 +20,8 @@ export default function Dashboard() {
   )
 
   const [activeCardId, setActiveCardId] = useState(null)
-
   const [refreshBalance, setRefreshBalance] = useState(0)
 
-  // 🔹 Buscar cartão ativo inicial
   useEffect(() => {
     fetchDefaultCard()
   }, [])
@@ -58,9 +40,7 @@ export default function Dashboard() {
       .limit(1)
       .single()
 
-    if (data) {
-      setActiveCardId(data.id)
-    }
+    if (data) setActiveCardId(data.id)
   }
 
   return (
@@ -71,18 +51,16 @@ export default function Dashboard() {
       setCurrentMonth={setCurrentMonth}
     >
       {page === 'home' && (
-        <MonthlyReport
-          currentMonth={currentMonth}
-          refreshBalance={refreshBalance}
-        />
+        <Home currentMonth={currentMonth} />
+      )}
+
+      {page === 'report' && (
+        <MonthlyReport currentMonth={currentMonth} />
       )}
 
       {page === 'transactions' && (
         <Transactions
           currentMonth={currentMonth}
-          activeCardId={activeCardId}
-          setActiveCardId={setActiveCardId}
-          refreshBalance={refreshBalance}
           setRefreshBalance={setRefreshBalance}
         />
       )}
@@ -104,12 +82,14 @@ export default function Dashboard() {
 
       {page === 'commitments' && (
         <Commitments
+          currentMonth={currentMonth}
           setRefreshBalance={setRefreshBalance}
         />
       )}
 
       {page === 'sporadic' && (
         <SporadicTransaction
+          currentMonth={currentMonth}
           setRefreshBalance={setRefreshBalance}
         />
       )}
@@ -120,12 +100,7 @@ export default function Dashboard() {
         />
       )}
 
-      {page === 'report' && (
-        <MonthlyReport
-          currentMonth={currentMonth}
-          refreshBalance={refreshBalance}
-        />
-      )}
+      {page === 'settings' && <Settings />}
     </Layout>
   )
 }

@@ -7,22 +7,18 @@ import { useToast } from '../ui/ToastProvider'
 
 /*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 GUIA — FATURA COM CICLO REAL DO CARTÃO
+🧭 FATURA DO CARTÃO — CICLO REAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-REGRA FUNDAMENTAL:
+Regras:
 - Fatura NÃO segue mês calendário
-- Fatura segue FECHAMENTO do cartão
-
-Exemplo:
-- Fecha dia 10
-- Tudo após dia 10 vai para próxima fatura
-
-Este arquivo calcula o ciclo corretamente.
+- Fatura segue fechamento do cartão
+- Nunca usar .single() sem garantia
+- Nunca deixar loading infinito
 */
 
 export default function CardInvoice({
-  currentMonth,        // YYYY-MM (mês da fatura)
+  currentMonth,        // YYYY-MM
   activeCardId,
   setRefreshBalance,
 }) {
@@ -32,25 +28,37 @@ export default function CardInvoice({
   const [closingDay, setClosingDay] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // 🔹 Buscar dados do cartão
   useEffect(() => {
     fetchCard()
   }, [activeCardId])
 
+  // 🔹 Buscar fatura quando ciclo estiver definido
   useEffect(() => {
-    if (closingDay) fetchInvoice()
+    if (closingDay) {
+      fetchInvoice()
+    }
   }, [currentMonth, closingDay])
 
   async function fetchCard() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user || !activeCardId) return
+    if (!activeCardId) {
+      setLoading(false)
+      return
+    }
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('cards')
       .select('closing_day')
       .eq('id', activeCardId)
-      .single()
+      .maybeSingle()
 
-    setClosingDay(data?.closing_day)
+    if (error || !data) {
+      console.error('Erro ao buscar cartão', error)
+      setLoading(false)
+      return
+    }
+
+    setClosingDay(data.closing_day)
   }
 
   function getInvoiceRange() {
@@ -70,8 +78,14 @@ export default function CardInvoice({
   async function fetchInvoice() {
     setLoading(true)
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      setLoading(false)
+      return
+    }
 
     const { start, end } = getInvoiceRange()
 
@@ -84,7 +98,7 @@ export default function CardInvoice({
       .lte('date', end)
 
     if (error) {
-      console.error(error)
+      console.error('Erro ao buscar fatura', error)
       setTransactions([])
     } else {
       setTransactions(data || [])
@@ -118,7 +132,10 @@ export default function CardInvoice({
     )
     if (!confirm) return
 
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
     if (!user) return
 
     const { start, end } = getInvoiceRange()
@@ -137,6 +154,19 @@ export default function CardInvoice({
     fetchInvoice()
   }
 
+  // 🟡 Nenhum cartão selecionado
+  if (!activeCardId) {
+    return (
+      <div style={{ maxWidth: 520 }}>
+        <Card>
+          <p className="text-muted">
+            Nenhum cartão selecionado.
+          </p>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div style={{ maxWidth: 520 }}>
       <Card>
@@ -146,7 +176,9 @@ export default function CardInvoice({
           <p className="text-muted">Carregando…</p>
         ) : (
           <>
-            <p className="text-muted">Fatura: {currentMonth}</p>
+            <p className="text-muted">
+              Fatura referência: {currentMonth}
+            </p>
 
             <Badge
               variant={
@@ -160,20 +192,27 @@ export default function CardInvoice({
               {status}
             </Badge>
 
-            <strong style={{ display: 'block', marginTop: 12 }}>
+            <strong
+              style={{
+                display: 'block',
+                marginTop: 12,
+              }}
+            >
               Total: R$ {total.toFixed(2)}
             </strong>
 
             <div style={{ marginTop: 16 }}>
               <Button
-                variant={status === 'PAGA' ? 'ghost' : 'danger'}
+                variant={
+                  status === 'PAGA'
+                    ? 'ghost'
+                    : 'danger'
+                }
                 disabled={status === 'PAGA'}
                 onClick={payInvoice}
               >
                 {status === 'PAGA'
                   ? 'Fatura paga'
-                  : status === 'PARCIAL'
-                  ? 'Pagar restante'
                   : 'Pagar fatura'}
               </Button>
             </div>

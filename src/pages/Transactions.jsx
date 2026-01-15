@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
+import { formatTransaction } from '../utils/formatTransaction'
 
 export default function Transactions({
   currentMonth,
@@ -21,7 +22,6 @@ export default function Transactions({
     } = await supabase.auth.getUser()
     if (!user) return
 
-    // cartões
     const { data: cards } = await supabase
       .from('cards')
       .select('id, name')
@@ -33,7 +33,6 @@ export default function Transactions({
     })
     setCardsMap(map)
 
-    // transações do mês
     const [year, m] = currentMonth.split('-')
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
@@ -50,7 +49,10 @@ export default function Transactions({
     setTransactions(list)
 
     const hasPending = list.some(
-      t => t.type !== 'entrada' && !t.paid
+      t =>
+        Number(t.amount) < 0 &&
+        !t.paid &&
+        t.card_id === null
     )
     setHasPending?.(hasPending)
   }
@@ -66,11 +68,7 @@ export default function Transactions({
   }
 
   async function deleteTransaction(id) {
-    if (
-      !window.confirm(
-        'Deseja excluir este lançamento?'
-      )
-    )
+    if (!window.confirm('Deseja excluir este lançamento?'))
       return
 
     await supabase
@@ -102,11 +100,7 @@ export default function Transactions({
         }}
       >
         {transactions.map(t => {
-          const isEntry = t.type === 'entrada'
-          const isCard = t.card_id !== null
-          const valueColor = isEntry
-            ? 'var(--success)'
-            : 'var(--danger)'
+          const meta = formatTransaction(t, cardsMap)
 
           return (
             <div
@@ -122,45 +116,48 @@ export default function Transactions({
               }}
             >
               {/* ESQUERDA */}
-              <div>
-                <strong>{t.name}</strong>
-
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--text-muted)',
-                    marginTop: 2,
-                  }}
-                >
-                  {t.date} ·{' '}
-                  {isCard
-                    ? `Cartão: ${
-                        cardsMap[t.card_id] || '—'
-                      }`
-                    : 'Conta / Dinheiro'}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ fontSize: 18 }}>
+                  {meta.icon}
                 </div>
 
-                {!isEntry && !t.paid && (
-                  <span
+                <div>
+                  <strong>{t.name}</strong>
+                  <div
                     style={{
                       fontSize: 12,
-                      color: 'var(--warning)',
+                      color: 'var(--text-muted)',
                     }}
                   >
-                    Pendente
-                  </span>
-                )}
+                    {t.date} · {meta.label}
+                  </div>
 
-                {t.paid && (
-                  <span
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--success)',
-                    }}
-                  >
-                    Pago
-                  </span>
-                )}
+                  {meta.isExpense &&
+                    !meta.isCard &&
+                    !t.paid && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--warning)',
+                        }}
+                      >
+                        Pendente
+                      </span>
+                    )}
+
+                  {meta.isExpense &&
+                    !meta.isCard &&
+                    t.paid && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--success)',
+                        }}
+                      >
+                        Pago
+                      </span>
+                    )}
+                </div>
               </div>
 
               {/* DIREITA */}
@@ -173,24 +170,22 @@ export default function Transactions({
               >
                 <strong
                   style={{
-                    color: valueColor,
-                    minWidth: 90,
+                    color: meta.color,
+                    minWidth: 120,
                     textAlign: 'right',
                   }}
                 >
-                  {isEntry ? '+' : '-'} R${' '}
-                  {t.amount !== null
-                    ? t.amount.toFixed(2)
-                    : '—'}
+                  {meta.formattedValue}
                 </strong>
 
-                {!isEntry &&
-                  !isCard &&
-                  !t.paid &&
-                  t.amount !== null && (
+                {meta.isExpense &&
+                  !meta.isCard &&
+                  !t.paid && (
                     <Button
                       variant="ghost"
-                      onClick={() => markAsPaid(t.id)}
+                      onClick={() =>
+                        markAsPaid(t.id)
+                      }
                     >
                       Pagar
                     </Button>

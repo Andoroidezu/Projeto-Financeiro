@@ -20,18 +20,23 @@ ChartJS.register(
   Tooltip
 )
 
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 RELATÓRIO MENSAL — VISÃO REAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Regras:
+- Entradas sempre somam
+- Saídas SEMPRE subtraem (inclusive cartão)
+- Cartão entra na data da compra
+- paid NÃO interfere no gráfico
+*/
+
 export default function MonthlyReport({ currentMonth }) {
   const [transactions, setTransactions] = useState([])
-  const [prevBalance, setPrevBalance] = useState(null)
-
-  const [totalIn, setTotalIn] = useState(0)
-  const [totalOut, setTotalOut] = useState(0)
-  const [largestExpense, setLargestExpense] = useState(null)
-  const [negativeDays, setNegativeDays] = useState(0)
 
   useEffect(() => {
     fetchReport()
-    fetchPreviousMonth()
   }, [currentMonth])
 
   async function fetchReport() {
@@ -46,261 +51,104 @@ export default function MonthlyReport({ currentMonth }) {
 
     const { data } = await supabase
       .from('transactions')
-      .select('name, date, amount, type, card_id')
+      .select('date, amount, type')
       .eq('user_id', user.id)
       .gte('date', start.toISOString().slice(0, 10))
       .lt('date', nextMonth.toISOString().slice(0, 10))
       .order('date', { ascending: true })
 
-    const list = data || []
-    setTransactions(list)
-
-    let income = 0
-    let expense = 0
-    let balance = 0
-    let biggest = null
-    const negativeDates = new Set()
-
-    list.forEach(t => {
-      if (t.amount === null) return
-      const value = Number(t.amount)
-
-      if (t.type === 'entrada') {
-        income += value
-        balance += value
-      } else {
-        expense += value
-        balance -= value
-
-        if (
-          !t.card_id &&
-          (!biggest || value > biggest.amount)
-        ) {
-          biggest = t
-        }
-      }
-
-      if (balance < 0) negativeDates.add(t.date)
-    })
-
-    setTotalIn(income)
-    setTotalOut(expense)
-    setLargestExpense(biggest)
-    setNegativeDays(negativeDates.size)
+    setTransactions(data || [])
   }
 
-  async function fetchPreviousMonth() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    if (!user) return
+  // 📊 Saldo acumulado (inclui cartão)
+  const labels = []
+  const balances = []
 
-    const [year, m] = currentMonth.split('-')
-    const prevStart = new Date(year, m - 2, 1)
-    const prevEnd = new Date(year, m - 1, 1)
+  let runningBalance = 0
 
-    const { data } = await supabase
-      .from('transactions')
-      .select('amount, type')
-      .eq('user_id', user.id)
-      .gte('date', prevStart.toISOString().slice(0, 10))
-      .lt('date', prevEnd.toISOString().slice(0, 10))
+  transactions.forEach(t => {
+    if (t.amount == null) return
 
-    let balance = 0
-    data?.forEach(t => {
-      if (!t.amount) return
-      balance +=
-        t.type === 'entrada'
-          ? t.amount
-          : -t.amount
-    })
+    const value = Number(t.amount)
+    if (Number.isNaN(value)) return
 
-    setPrevBalance(balance)
-  }
-
-  const balance = totalIn - totalOut
-
-  const variation =
-    prevBalance !== null && prevBalance !== 0
-      ? ((balance - prevBalance) /
-          Math.abs(prevBalance)) *
-        100
-      : null
-
-  function buildChartData() {
-    let running = 0
-    const labels = []
-    const values = []
-
-    transactions.forEach(t => {
-      if (t.amount === null) return
-      running +=
-        t.type === 'entrada'
-          ? t.amount
-          : -t.amount
-      labels.push(t.date)
-      values.push(running)
-    })
-
-    return {
-      labels,
-      datasets: [
-        {
-          data: values,
-          borderColor: '#6366f1',
-          backgroundColor: 'transparent',
-          tension: 0.3,
-          pointRadius: 0,
-        },
-      ],
+    if (t.type === 'entrada') {
+      runningBalance += value
+    } else {
+      runningBalance -= value
     }
+
+    labels.push(
+      new Date(t.date).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+      })
+    )
+    balances.push(runningBalance)
+  })
+
+  const data = {
+    labels,
+    datasets: [
+      {
+        label: 'Saldo',
+        data: balances,
+        borderColor: '#60a5fa',
+        borderWidth: 2,
+        tension: 0.35,
+        pointRadius: 3,
+        pointHoverRadius: 4,
+        fill: false,
+        spanGaps: true,
+      },
+    ],
+  }
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx =>
+            `R$ ${ctx.parsed.y.toFixed(2)}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: 'rgba(255,255,255,0.06)',
+        },
+      },
+    },
   }
 
   return (
-    <Card>
-      <h2 style={{ fontSize: 18, marginBottom: 16 }}>
-        Relatório mensal
-      </h2>
-
-      {/* KPIs */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns:
-            'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <Metric
-          label="Entradas"
-          value={`R$ ${totalIn.toFixed(2)}`}
-          color="var(--success)"
-        />
-
-        <Metric
-          label="Saídas"
-          value={`R$ ${totalOut.toFixed(2)}`}
-          color="var(--danger)"
-        />
-
-        <Metric
-          label="Saldo"
-          value={`R$ ${balance.toFixed(2)}`}
-          color={
-            balance >= 0
-              ? 'var(--success)'
-              : 'var(--danger)'
-          }
-        />
-
-        <Metric
-          label="Variação mensal"
-          value={
-            variation === null
-              ? '—'
-              : `${variation >= 0 ? '▲' : '▼'} ${Math.abs(
-                  variation
-                ).toFixed(1)}%`
-          }
-          color={
-            variation >= 0
-              ? 'var(--success)'
-              : 'var(--danger)'
-          }
-        />
-      </div>
-
-      {/* INSIGHTS */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns:
-            'repeat(auto-fit, minmax(240px, 1fr))',
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <Insight
-          title="Maior gasto (fora cartão)"
-          value={
-            largestExpense
-              ? `${largestExpense.name} — R$ ${largestExpense.amount}`
-              : '—'
-          }
-        />
-
-        <Insight
-          title="Dias no negativo"
-          value={negativeDays}
-        />
-      </div>
-
-      {/* GRÁFICO */}
+    <div style={{ maxWidth: 900 }}>
       <Card>
-        <Line
-          data={buildChartData()}
-          options={{
-            responsive: true,
-            plugins: {
-              legend: { display: false },
-            },
-            scales: {
-              x: {
-                ticks: { color: '#9ca3af' },
-                grid: { display: false },
-              },
-              y: {
-                ticks: { color: '#9ca3af' },
-                grid: {
-                  color: 'rgba(255,255,255,0.05)',
-                },
-              },
-            },
-          }}
-        />
+        <h2 style={{ fontSize: 20, marginBottom: 6 }}>
+          Relatório mensal
+        </h2>
+        <p className="text-muted">
+          Entradas, saídas e compras no cartão
+        </p>
       </Card>
-    </Card>
-  )
-}
 
-function Metric({ label, value, color }) {
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 12,
-          color: 'var(--text-muted)',
-        }}
-      >
-        {label}
-      </div>
-      <strong
-        style={{
-          fontSize: 18,
-          color,
-        }}
-      >
-        {value}
-      </strong>
-    </div>
-  )
-}
-
-function Insight({ title, value }) {
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 12,
-          color: 'var(--text-muted)',
-        }}
-      >
-        {title}
-      </div>
-      <strong style={{ fontSize: 15 }}>
-        {value}
-      </strong>
+      <Card>
+        {balances.length === 0 ? (
+          <p className="text-muted">
+            Nenhuma movimentação neste mês.
+          </p>
+        ) : (
+          <div style={{ height: 200 }}>
+            <Line data={data} options={options} />
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

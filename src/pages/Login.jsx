@@ -4,18 +4,13 @@ import Button from '../ui/Button'
 
 /*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 LOGIN & CADASTRO (FLUXO CORRETO)
+🧭 LOGIN & CADASTRO — FLUXO CORRETO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Este componente:
-- Controla login e cadastro
-- Valida email e senha
-- Dá feedback claro ao usuário
-- Não cria conta "fantasma"
-
 Regras:
-- Email e senha são obrigatórios
-- Cadastro e login são fluxos distintos
+- Signup cria conta E faz login automático
+- Login sempre cria sessão
+- App.jsx reage apenas à sessão
 */
 
 export default function Login() {
@@ -36,36 +31,51 @@ export default function Login() {
 
     setLoading(true)
 
-    if (mode === 'login') {
-      const { error } =
-        await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+    try {
+      // 🔐 LOGIN
+      if (mode === 'login') {
+        const { error } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          })
 
-      if (error) {
-        setMessage('Email ou senha inválidos.')
+        if (error) {
+          setMessage('Email ou senha inválidos.')
+        }
       }
-    }
 
-    if (mode === 'signup') {
-      const { data, error } =
-        await supabase.auth.signUp({
-          email,
-          password,
-        })
+      // 🆕 CADASTRO + AUTO LOGIN
+      if (mode === 'signup') {
+        const { error: signUpError } =
+          await supabase.auth.signUp({
+            email,
+            password,
+          })
 
-      if (error) {
-        setMessage(error.message)
-      } else {
-        setMessage(
-          'Conta criada com sucesso. Você já pode entrar.'
-        )
-        setMode('login')
+        if (signUpError) {
+          setMessage(signUpError.message)
+          setLoading(false)
+          return
+        }
+
+        // 🔑 login automático após signup
+        const { error: loginError } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          })
+
+        if (loginError) {
+          setMessage(loginError.message)
+        }
       }
+    } catch (err) {
+      setMessage('Erro inesperado. Tente novamente.')
+      console.error(err)
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
@@ -103,7 +113,6 @@ export default function Login() {
           value={email}
           onChange={e => setEmail(e.target.value)}
           required
-          style={inputStyle}
         />
 
         <input
@@ -112,7 +121,6 @@ export default function Login() {
           value={password}
           onChange={e => setPassword(e.target.value)}
           required
-          style={inputStyle}
         />
 
         {message && (
@@ -128,7 +136,7 @@ export default function Login() {
 
         <Button type="submit" disabled={loading}>
           {loading
-            ? 'Processando...'
+            ? 'Processando…'
             : mode === 'login'
             ? 'Entrar'
             : 'Criar conta'}
@@ -138,16 +146,17 @@ export default function Login() {
           type="button"
           onClick={() =>
             setMode(
-              mode === 'login' ? 'signup' : 'login'
+              mode === 'login'
+                ? 'signup'
+                : 'login'
             )
           }
           style={{
             background: 'none',
             border: 'none',
             color: 'var(--text-muted)',
-            fontSize: 13,
             cursor: 'pointer',
-            marginTop: 8,
+            fontSize: 13,
           }}
         >
           {mode === 'login'
@@ -157,13 +166,4 @@ export default function Login() {
       </form>
     </div>
   )
-}
-
-const inputStyle = {
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  padding: '8px 10px',
-  color: 'var(--text)',
-  fontSize: 14,
 }
