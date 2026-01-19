@@ -2,7 +2,18 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
-import { formatTransaction } from '../utils/formatTransaction'
+
+/*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧭 LANÇAMENTOS — VISÃO FINANCEIRA REAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+REGRAS:
+- SOMENTE entradas exibem valor positivo
+- Saídas e cartão SEMPRE exibem valor negativo
+- Lançamento único de saída nasce PENDENTE
+- Cartão só muda status via fatura
+*/
 
 export default function Transactions({
   currentMonth,
@@ -11,6 +22,7 @@ export default function Transactions({
 }) {
   const [transactions, setTransactions] = useState([])
   const [cardsMap, setCardsMap] = useState({})
+  const [openMenu, setOpenMenu] = useState(null)
 
   useEffect(() => {
     fetchData()
@@ -22,6 +34,7 @@ export default function Transactions({
     } = await supabase.auth.getUser()
     if (!user) return
 
+    // Cartões
     const { data: cards } = await supabase
       .from('cards')
       .select('id, name')
@@ -33,6 +46,7 @@ export default function Transactions({
     })
     setCardsMap(map)
 
+    // Lançamentos
     const [year, m] = currentMonth.split('-')
     const start = new Date(year, m - 1, 1)
     const nextMonth = new Date(year, m, 1)
@@ -49,10 +63,7 @@ export default function Transactions({
     setTransactions(list)
 
     const hasPending = list.some(
-      t =>
-        Number(t.amount) < 0 &&
-        !t.paid &&
-        t.card_id === null
+      t => t.type === 'saida' && !t.paid
     )
     setHasPending?.(hasPending)
   }
@@ -68,8 +79,7 @@ export default function Transactions({
   }
 
   async function deleteTransaction(id) {
-    if (!window.confirm('Deseja excluir este lançamento?'))
-      return
+    if (!window.confirm('Excluir lançamento?')) return
 
     await supabase
       .from('transactions')
@@ -78,6 +88,37 @@ export default function Transactions({
 
     setRefreshBalance(v => v + 1)
     fetchData()
+  }
+
+  function getAmount(t) {
+    const value = Number(t.amount) || 0
+
+    if (t.type === 'entrada') {
+      return Math.abs(value)
+    }
+
+    // qualquer gasto é negativo
+    return -Math.abs(value)
+  }
+
+  function getStatus(t) {
+    if (t.card_id !== null) {
+      return t.paid ? 'Fatura paga' : 'Na fatura'
+    }
+
+    return t.paid ? 'Pago' : 'Pendente'
+  }
+
+  function getStatusColor(t) {
+    if (t.card_id !== null) {
+      return t.paid
+        ? 'var(--success)'
+        : 'var(--info)'
+    }
+
+    return t.paid
+      ? 'var(--success)'
+      : 'var(--warning)'
   }
 
   return (
@@ -92,15 +133,11 @@ export default function Transactions({
         </p>
       )}
 
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
-      >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {transactions.map(t => {
-          const meta = formatTransaction(t, cardsMap)
+          const amount = getAmount(t)
+          const isEntry = t.type === 'entrada'
+          const isCard = t.card_id !== null
 
           return (
             <div
@@ -116,89 +153,114 @@ export default function Transactions({
               }}
             >
               {/* ESQUERDA */}
-              <div style={{ display: 'flex', gap: 10 }}>
-                <div style={{ fontSize: 18 }}>
-                  {meta.icon}
+              <div>
+                <strong>{t.name}</strong>
+
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    marginTop: 2,
+                  }}
+                >
+                  {t.date} ·{' '}
+                  {isCard
+                    ? `Cartão: ${cardsMap[t.card_id] || '—'}`
+                    : 'Conta / Dinheiro'}
                 </div>
 
-                <div>
-                  <strong>{t.name}</strong>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--text-muted)',
-                    }}
-                  >
-                    {t.date} · {meta.label}
-                  </div>
-
-                  {meta.isExpense &&
-                    !meta.isCard &&
-                    !t.paid && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--warning)',
-                        }}
-                      >
-                        Pendente
-                      </span>
-                    )}
-
-                  {meta.isExpense &&
-                    !meta.isCard &&
-                    t.paid && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: 'var(--success)',
-                        }}
-                      >
-                        Pago
-                      </span>
-                    )}
-                </div>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: getStatusColor(t),
+                  }}
+                >
+                  {getStatus(t)}
+                </span>
               </div>
 
               {/* DIREITA */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <strong
                   style={{
-                    color: meta.color,
-                    minWidth: 120,
+                    color:
+                      amount > 0
+                        ? 'var(--success)'
+                        : 'var(--danger)',
+                    minWidth: 110,
                     textAlign: 'right',
                   }}
                 >
-                  {meta.formattedValue}
+                  {amount > 0 ? '+' : '-'} R${' '}
+                  {Math.abs(amount).toFixed(2)}
                 </strong>
 
-                {meta.isExpense &&
-                  !meta.isCard &&
-                  !t.paid && (
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        markAsPaid(t.id)
-                      }
-                    >
-                      Pagar
-                    </Button>
-                  )}
+                {/* MENU */}
+                <div style={{ position: 'relative' }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      setOpenMenu(
+                        openMenu === t.id ? null : t.id
+                      )
+                    }
+                  >
+                    ☰
+                  </Button>
 
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    deleteTransaction(t.id)
-                  }
-                >
-                  ✕
-                </Button>
+                  {openMenu === t.id && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        right: 0,
+                        top: 28,
+                        background: 'var(--bg)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: 4,
+                        zIndex: 10,
+                        minWidth: 140,
+                      }}
+                    >
+                      {!isEntry && !isCard && !t.paid && (
+                        <button
+                          onClick={() => {
+                            markAsPaid(t.id)
+                            setOpenMenu(null)
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '6px 8px',
+                            background: 'none',
+                            border: 'none',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Marcar como pago
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => {
+                          deleteTransaction(t.id)
+                          setOpenMenu(null)
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px 8px',
+                          background: 'none',
+                          border: 'none',
+                          textAlign: 'left',
+                          color: 'var(--danger)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )
