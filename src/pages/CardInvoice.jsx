@@ -5,6 +5,25 @@ import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import { useToast } from '../ui/ToastProvider'
 
+const BANK_THEMES = {
+  nubank:   { color: '#8A05BE', bg: 'rgba(138,5,190,0.08)' },
+  itau:    { color: '#EC7000', bg: 'rgba(236,112,0,0.08)' },
+  bradesco:{ color: '#CC092F', bg: 'rgba(204,9,47,0.08)' },
+  santander:{ color: '#EA1D25', bg: 'rgba(234,29,37,0.08)' },
+  bb:      { color: '#F7D117', bg: 'rgba(247,209,23,0.14)' },
+  caixa:   { color: '#0066B3', bg: 'rgba(0,102,179,0.08)' },
+  inter:   { color: '#FF7A00', bg: 'rgba(255,122,0,0.08)' },
+  c6:      { color: '#000000', bg: 'rgba(0,0,0,0.06)' },
+  neon:    { color: '#00E88F', bg: 'rgba(0,232,143,0.08)' },
+  original:{ color: '#00A859', bg: 'rgba(0,168,89,0.08)' },
+  next:    { color: '#00FF5F', bg: 'rgba(0,255,95,0.08)' },
+  sicredi: { color: '#00A651', bg: 'rgba(0,166,81,0.08)' },
+  sicoob:  { color: '#003641', bg: 'rgba(0,54,65,0.08)' },
+  banrisul:{ color: '#005CA9', bg: 'rgba(0,92,169,0.08)' },
+  pan:     { color: '#1E1E1E', bg: 'rgba(30,30,30,0.06)' },
+  default: { color: 'var(--text)', bg: 'var(--bg-hover)' },
+}
+
 export default function CardInvoice({
   currentMonth,
   setCurrentMonth,
@@ -16,7 +35,6 @@ export default function CardInvoice({
   const [cards, setCards] = useState([])
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [fading, setFading] = useState({})
 
   useEffect(() => {
     fetchData()
@@ -35,7 +53,7 @@ export default function CardInvoice({
 
     const { data: cardsData } = await supabase
       .from('cards')
-      .select('id, name, closing_day, due_day')
+      .select('*')
       .eq('user_id', user.id)
 
     const { data: txData } = await supabase
@@ -51,16 +69,11 @@ export default function CardInvoice({
 
   function resolveInvoiceMonth(tx, closingDay) {
     const d = new Date(tx.date)
-    const purchaseDay = d.getDate()
     const invoiceDate = new Date(d.getFullYear(), d.getMonth(), 1)
-
-    if (purchaseDay > closingDay) {
+    if (d.getDate() > closingDay) {
       invoiceDate.setMonth(invoiceDate.getMonth() + 1)
     }
-
-    const y = invoiceDate.getFullYear()
-    const m = String(invoiceDate.getMonth() + 1).padStart(2, '0')
-    return `${y}-${m}`
+    return invoiceDate.toISOString().slice(0, 7)
   }
 
   function invoicePeriod(invoiceMonth, closingDay) {
@@ -95,42 +108,25 @@ export default function CardInvoice({
     return map
   }
 
-  function getOriginMonth(txs) {
-    if (!txs.length) return null
-
-    const months = txs.map(tx =>
-      new Date(tx.date).toISOString().slice(0, 7)
-    )
-
-    return months.sort()[0] // menor mês = origem
-  }
-
   async function payInvoice(card, invoiceMonth, txs) {
     if (!txs.length) return
     if (!window.confirm('Pagar esta fatura?')) return
 
-    setFading(prev => ({
-      ...prev,
-      [`${card.id}-${invoiceMonth}`]: true,
-    }))
-
-    const ids = txs.map(t => t.id)
-
     await supabase
       .from('transactions')
       .update({ paid: true })
-      .in('id', ids)
-
-    const originMonth = getOriginMonth(txs)
+      .in(
+        'id',
+        txs.map(t => t.id)
+      )
 
     showToast({
       message: `Fatura paga — ${card.name}`,
       variant: 'success',
       actions: [
         {
-          label: `Ver lançamentos (${originMonth})`,
+          label: 'Ver lançamentos',
           onClick: () => {
-            setCurrentMonth(originMonth)
             setPage('transactions')
           },
         },
@@ -173,8 +169,18 @@ export default function CardInvoice({
                 : 'ABERTA'
           }
 
+          const theme =
+            BANK_THEMES[card.bank] ||
+            BANK_THEMES.default
+
           return (
-            <Card key={card.id}>
+            <Card
+              key={card.id}
+              style={{
+                borderLeft: `4px solid ${theme.color}`,
+                background: theme.bg,
+              }}
+            >
               <div style={{ marginBottom: 12 }}>
                 <h3 style={{ marginBottom: 6 }}>
                   {card.name}
@@ -202,7 +208,7 @@ export default function CardInvoice({
                     currentMonth,
                     card.closing_day
                   )}{' '}
-                  · vence dia {card.due_day || '—'}
+                  · vence dia {card.due_day}
                 </div>
               </div>
 
@@ -248,16 +254,15 @@ export default function CardInvoice({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 8,
+                    fontSize: 13,
                   }}
                 >
                   {txs.map(tx => (
                     <div
                       key={tx.id}
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns:
-                          '1fr auto',
-                        fontSize: 13,
+                        display: 'flex',
+                        justifyContent: 'space-between',
                       }}
                     >
                       <span>{tx.name}</span>
