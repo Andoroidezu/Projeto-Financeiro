@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import Sidebar from './Sidebar'
+import Button from '../ui/Button'
 
 export default function Layout({
   children,
@@ -10,6 +11,7 @@ export default function Layout({
   setCurrentMonth,
 }) {
   const [animate, setAnimate] = useState(false)
+  const monthInputRef = useRef(null)
 
   useEffect(() => {
     setAnimate(false)
@@ -19,13 +21,28 @@ export default function Layout({
 
   async function handleLogout() {
     const { error } = await supabase.auth.signOut()
-
     if (error) {
       console.error('Erro ao deslogar:', error)
     }
-    // ⚠️ NÃO muda page
-    // ⚠️ NÃO navega
-    // App.jsx cuidará do resto
+  }
+
+  function formatMonthLabel(value) {
+    const [year, month] = value.split('-').map(Number)
+    const date = new Date(year, month - 1, 1)
+
+    return date.toLocaleDateString('pt-BR', {
+      month: 'long',
+      year: 'numeric',
+    })
+  }
+
+  function changeMonth(offset) {
+    const [year, month] = currentMonth.split('-').map(Number)
+    const d = new Date(year, month - 1 + offset, 1)
+
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    setCurrentMonth(`${y}-${m}`)
   }
 
   return (
@@ -46,27 +63,71 @@ export default function Layout({
         {/* TOP BAR */}
         <div
           style={{
-            padding: '16px 24px',
+            padding: '12px 24px',
             borderBottom: '1px solid var(--border)',
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
+            alignItems: 'center',
           }}
         >
-          <input
-            type="month"
-            value={currentMonth}
-            onChange={e =>
-              setCurrentMonth(e.target.value)
-            }
+          {/* CONTROLE DE MÊS */}
+          <div
             style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: '6px 10px',
-              color: 'var(--text)',
-              fontSize: 13,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
             }}
-          />
+          >
+            <Button
+              variant="ghost"
+              onClick={() => changeMonth(-1)}
+            >
+              ◀
+            </Button>
+
+            <strong
+              style={{
+                minWidth: 140,
+                textAlign: 'center',
+                textTransform: 'capitalize',
+              }}
+            >
+              {formatMonthLabel(currentMonth)}
+            </strong>
+
+            <Button
+              variant="ghost"
+              onClick={() => changeMonth(1)}
+            >
+              ▶
+            </Button>
+
+            {/* BOTÃO CALENDÁRIO */}
+            <Button
+              variant="ghost"
+              onClick={() =>
+                monthInputRef.current?.showPicker()
+              }
+              title="Selecionar mês"
+            >
+              📅
+            </Button>
+
+            {/* INPUT INVISÍVEL */}
+            <input
+              ref={monthInputRef}
+              type="month"
+              value={currentMonth}
+              onChange={e =>
+                setCurrentMonth(e.target.value)
+              }
+              style={{
+                position: 'absolute',
+                opacity: 0,
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
         </div>
 
         {/* CONTEÚDO COM ANIMAÇÃO */}

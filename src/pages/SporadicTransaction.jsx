@@ -6,24 +6,13 @@ import { useToast } from '../ui/ToastProvider'
 
 /*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 GUIA DE CONTEXTO — LANÇAMENTO ÚNICO
+🧭 LANÇAMENTO ÚNICO — UX SEGURA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Esta página segue o PADRÃO definido em "Recorrentes".
-
-Objetivo:
-- Criar lançamentos pontuais (não recorrentes)
-- Entradas ou saídas únicas
-- Ex: conserto, compra eventual, renda extra
-
-Estrutura obrigatória:
-1. Header explicando o que é e quando usar
-2. Ação principal clara (criar lançamento)
-3. Histórico separado, sem competir visualmente
-
-Se esta página parecer "simples":
-👉 isso é intencional
-👉 simplicidade + clareza = produto profissional
+Correções:
+- Bloqueia múltiplos submits
+- Entrada e saída têm o mesmo comportamento
+- Evita criação duplicada
 */
 
 export default function SporadicTransaction({
@@ -36,6 +25,7 @@ export default function SporadicTransaction({
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
   const [type, setType] = useState('saida')
+  const [loading, setLoading] = useState(false)
 
   const { showToast } = useToast()
 
@@ -68,6 +58,9 @@ export default function SporadicTransaction({
   async function handleSubmit(e) {
     e.preventDefault()
 
+    // 🔒 trava contra clique múltiplo
+    if (loading) return
+
     if (!name || !amount) {
       showToast(
         'Informe nome e valor do lançamento',
@@ -79,22 +72,38 @@ export default function SporadicTransaction({
     const {
       data: { user },
     } = await supabase.auth.getUser()
+    if (!user) return
+
+    const rawValue = Math.abs(Number(amount))
+    if (Number.isNaN(rawValue)) return
+
+    const finalAmount =
+      type === 'entrada'
+        ? rawValue
+        : -rawValue
+
+    const paid =
+      type === 'entrada' ? true : false
 
     const today = new Date()
       .toISOString()
       .slice(0, 10)
+
+    setLoading(true)
 
     const { error } = await supabase
       .from('transactions')
       .insert({
         user_id: user.id,
         name,
-        amount: Number(amount),
+        amount: finalAmount,
         type,
         date: today,
-        paid: true,
+        paid,
         card_id: null,
       })
+
+    setLoading(false)
 
     if (error) {
       showToast(
@@ -163,6 +172,7 @@ export default function SporadicTransaction({
           <Button
             variant="ghost"
             onClick={() => setShowForm(!showForm)}
+            disabled={loading}
           >
             {showForm ? 'Cancelar' : 'Novo'}
           </Button>
@@ -174,6 +184,7 @@ export default function SporadicTransaction({
               placeholder="Descrição"
               value={name}
               onChange={e => setName(e.target.value)}
+              disabled={loading}
             />
 
             <input
@@ -183,11 +194,13 @@ export default function SporadicTransaction({
               onChange={e =>
                 setAmount(e.target.value)
               }
+              disabled={loading}
             />
 
             <select
               value={type}
               onChange={e => setType(e.target.value)}
+              disabled={loading}
             >
               <option value="saida">Saída</option>
               <option value="entrada">
@@ -195,8 +208,8 @@ export default function SporadicTransaction({
               </option>
             </select>
 
-            <Button type="submit">
-              Salvar lançamento
+            <Button type="submit" disabled={loading}>
+              {loading ? 'Salvando…' : 'Salvar lançamento'}
             </Button>
           </form>
         )}
@@ -204,7 +217,12 @@ export default function SporadicTransaction({
 
       {/* HISTÓRICO */}
       <Card>
-        <strong style={{ display: 'block', marginBottom: 12 }}>
+        <strong
+          style={{
+            display: 'block',
+            marginBottom: 12,
+          }}
+        >
           Lançamentos do mês
         </strong>
 
@@ -226,12 +244,15 @@ export default function SporadicTransaction({
               key={item.id}
               style={{
                 display: 'flex',
-                justifyContent: 'space-between',
+                justifyContent:
+                  'space-between',
                 alignItems: 'center',
                 padding: '10px 12px',
                 borderRadius: 6,
-                background: 'var(--bg-hover)',
-                border: '1px solid var(--border)',
+                background:
+                  'var(--bg-hover)',
+                border:
+                  '1px solid var(--border)',
               }}
             >
               <div>
@@ -246,26 +267,19 @@ export default function SporadicTransaction({
                 </div>
               </div>
 
-              <div
+              <strong
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
+                  color:
+                    item.amount > 0
+                      ? 'var(--success)'
+                      : 'var(--danger)',
                 }}
               >
-                <strong>
-                  R$ {item.amount.toFixed(2)}
-                </strong>
-
-                <Button
-                  variant="ghost"
-                  onClick={() =>
-                    handleDelete(item.id)
-                  }
-                >
-                  ✕
-                </Button>
-              </div>
+                {item.amount > 0 ? '+' : '-'} R${' '}
+                {Math.abs(item.amount).toFixed(
+                  2
+                )}
+              </strong>
             </div>
           ))}
         </div>

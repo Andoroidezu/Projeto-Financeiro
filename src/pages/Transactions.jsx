@@ -9,6 +9,7 @@ import Button from '../ui/Button'
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 REGRAS:
+- Entradas NÃO exibem status
 - SOMENTE entradas exibem valor positivo
 - Saídas e cartão SEMPRE exibem valor negativo
 - Lançamento único de saída nasce PENDENTE
@@ -23,6 +24,7 @@ export default function Transactions({
   const [transactions, setTransactions] = useState([])
   const [cardsMap, setCardsMap] = useState({})
   const [openMenu, setOpenMenu] = useState(null)
+  const [filter, setFilter] = useState('all')
 
   useEffect(() => {
     fetchData()
@@ -92,16 +94,14 @@ export default function Transactions({
 
   function getAmount(t) {
     const value = Number(t.amount) || 0
-
-    if (t.type === 'entrada') {
-      return Math.abs(value)
-    }
-
-    // qualquer gasto é negativo
-    return -Math.abs(value)
+    return t.type === 'entrada'
+      ? Math.abs(value)
+      : -Math.abs(value)
   }
 
   function getStatus(t) {
+    if (t.type === 'entrada') return null
+
     if (t.card_id !== null) {
       return t.paid ? 'Fatura paga' : 'Na fatura'
     }
@@ -121,23 +121,84 @@ export default function Transactions({
       : 'var(--warning)'
   }
 
+  function getIcon(t) {
+    if (t.type === 'entrada') return '💰'
+    if (t.card_id !== null) return '💳'
+    return '🧾'
+  }
+
+  function applyFilter(t) {
+    if (filter === 'all') return true
+    if (filter === 'pending')
+      return t.type === 'saida' && !t.paid
+    if (filter === 'paid') return t.paid
+    if (filter === 'card') return t.card_id !== null
+    if (filter === 'unique')
+      return t.card_id === null && t.type === 'saida'
+    if (filter === 'entry') return t.type === 'entrada'
+    return true
+  }
+
+  const visible = transactions.filter(applyFilter)
+
+  function filterStyle(name) {
+    return {
+      background:
+        filter === name
+          ? 'var(--bg-hover)'
+          : 'transparent',
+      border:
+        filter === name
+          ? '1px solid var(--border)'
+          : '1px solid transparent',
+    }
+  }
+
   return (
     <Card>
-      <h2 style={{ fontSize: 18, marginBottom: 16 }}>
+      <h2 style={{ fontSize: 18, marginBottom: 12 }}>
         Lançamentos
       </h2>
 
-      {transactions.length === 0 && (
+      {/* FILTROS */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          flexWrap: 'wrap',
+          marginBottom: 16,
+        }}
+      >
+        <Button variant="ghost" style={filterStyle('all')} onClick={() => setFilter('all')}>
+          Todos
+        </Button>
+        <Button variant="ghost" style={filterStyle('pending')} onClick={() => setFilter('pending')}>
+          Pendentes
+        </Button>
+        <Button variant="ghost" style={filterStyle('paid')} onClick={() => setFilter('paid')}>
+          Pagos
+        </Button>
+        <Button variant="ghost" style={filterStyle('card')} onClick={() => setFilter('card')}>
+          Cartão
+        </Button>
+        <Button variant="ghost" style={filterStyle('unique')} onClick={() => setFilter('unique')}>
+          Únicos
+        </Button>
+        <Button variant="ghost" style={filterStyle('entry')} onClick={() => setFilter('entry')}>
+          Entradas
+        </Button>
+      </div>
+
+      {visible.length === 0 && (
         <p className="text-muted">
-          Nenhum lançamento neste mês.
+          Nenhum lançamento encontrado.
         </p>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {transactions.map(t => {
+        {visible.map(t => {
           const amount = getAmount(t)
-          const isEntry = t.type === 'entrada'
-          const isCard = t.card_id !== null
+          const status = getStatus(t)
 
           return (
             <div
@@ -154,7 +215,12 @@ export default function Transactions({
             >
               {/* ESQUERDA */}
               <div>
-                <strong>{t.name}</strong>
+                <strong>
+                  <span style={{ marginRight: 6 }}>
+                    {getIcon(t)}
+                  </span>
+                  {t.name}
+                </strong>
 
                 <div
                   style={{
@@ -164,19 +230,21 @@ export default function Transactions({
                   }}
                 >
                   {t.date} ·{' '}
-                  {isCard
+                  {t.card_id
                     ? `Cartão: ${cardsMap[t.card_id] || '—'}`
                     : 'Conta / Dinheiro'}
                 </div>
 
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: getStatusColor(t),
-                  }}
-                >
-                  {getStatus(t)}
-                </span>
+                {status && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: getStatusColor(t),
+                    }}
+                  >
+                    {status}
+                  </span>
+                )}
               </div>
 
               {/* DIREITA */}
@@ -191,18 +259,14 @@ export default function Transactions({
                     textAlign: 'right',
                   }}
                 >
-                  {amount > 0 ? '+' : '-'} R${' '}
-                  {Math.abs(amount).toFixed(2)}
+                  {amount > 0 ? '+' : '-'} R$ {Math.abs(amount).toFixed(2)}
                 </strong>
 
-                {/* MENU */}
                 <div style={{ position: 'relative' }}>
                   <Button
                     variant="ghost"
                     onClick={() =>
-                      setOpenMenu(
-                        openMenu === t.id ? null : t.id
-                      )
+                      setOpenMenu(openMenu === t.id ? null : t.id)
                     }
                   >
                     ☰
@@ -222,24 +286,26 @@ export default function Transactions({
                         minWidth: 140,
                       }}
                     >
-                      {!isEntry && !isCard && !t.paid && (
-                        <button
-                          onClick={() => {
-                            markAsPaid(t.id)
-                            setOpenMenu(null)
-                          }}
-                          style={{
-                            width: '100%',
-                            padding: '6px 8px',
-                            background: 'none',
-                            border: 'none',
-                            textAlign: 'left',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Marcar como pago
-                        </button>
-                      )}
+                      {t.type === 'saida' &&
+                        t.card_id === null &&
+                        !t.paid && (
+                          <button
+                            onClick={() => {
+                              markAsPaid(t.id)
+                              setOpenMenu(null)
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              background: 'none',
+                              border: 'none',
+                              textAlign: 'left',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Marcar como pago
+                          </button>
+                        )}
 
                       <button
                         onClick={() => {

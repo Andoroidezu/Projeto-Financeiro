@@ -5,220 +5,276 @@ import Button from '../ui/Button'
 import Badge from '../ui/Badge'
 import { useToast } from '../ui/ToastProvider'
 
-/*
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 FATURA DO CARTÃO — CICLO REAL
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Regras:
-- Fatura NÃO segue mês calendário
-- Fatura segue fechamento do cartão
-- Nunca usar .single() sem garantia
-- Nunca deixar loading infinito
-*/
-
 export default function CardInvoice({
-  currentMonth,        // YYYY-MM
-  activeCardId,
+  currentMonth,
+  setCurrentMonth,
+  setPage,
   setRefreshBalance,
 }) {
   const { showToast } = useToast()
 
+  const [cards, setCards] = useState([])
   const [transactions, setTransactions] = useState([])
-  const [closingDay, setClosingDay] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [fading, setFading] = useState({})
 
-  // 🔹 Buscar dados do cartão
   useEffect(() => {
-    fetchCard()
-  }, [activeCardId])
+    fetchData()
+  }, [currentMonth])
 
-  // 🔹 Buscar fatura quando ciclo estiver definido
-  useEffect(() => {
-    if (closingDay) {
-      fetchInvoice()
-    }
-  }, [currentMonth, closingDay])
-
-  async function fetchCard() {
-    if (!activeCardId) {
-      setLoading(false)
-      return
-    }
-
-    const { data, error } = await supabase
-      .from('cards')
-      .select('closing_day')
-      .eq('id', activeCardId)
-      .maybeSingle()
-
-    if (error || !data) {
-      console.error('Erro ao buscar cartão', error)
-      setLoading(false)
-      return
-    }
-
-    setClosingDay(data.closing_day)
-  }
-
-  function getInvoiceRange() {
-    const [year, month] = currentMonth.split('-').map(Number)
-
-    const end = new Date(year, month - 1, closingDay)
-    const start = new Date(end)
-    start.setMonth(start.getMonth() - 1)
-    start.setDate(closingDay + 1)
-
-    return {
-      start: start.toISOString().slice(0, 10),
-      end: end.toISOString().slice(0, 10),
-    }
-  }
-
-  async function fetchInvoice() {
+  async function fetchData() {
     setLoading(true)
 
     const {
       data: { user },
     } = await supabase.auth.getUser()
-
     if (!user) {
       setLoading(false)
       return
     }
 
-    const { start, end } = getInvoiceRange()
-
-    const { data, error } = await supabase
-      .from('transactions')
-      .select('id, amount, paid')
+    const { data: cardsData } = await supabase
+      .from('cards')
+      .select('id, name, closing_day, due_day')
       .eq('user_id', user.id)
-      .eq('card_id', activeCardId)
-      .gte('date', start)
-      .lte('date', end)
 
-    if (error) {
-      console.error('Erro ao buscar fatura', error)
-      setTransactions([])
-    } else {
-      setTransactions(data || [])
-    }
+    const { data: txData } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', user.id)
+      .not('card_id', 'is', null)
 
+    setCards(cardsData || [])
+    setTransactions(txData || [])
     setLoading(false)
   }
 
-  const total = transactions.reduce(
-    (sum, t) => sum + Number(t.amount),
-    0
-  )
+  function resolveInvoiceMonth(tx, closingDay) {
+    const d = new Date(tx.date)
+    const purchaseDay = d.getDate()
+    const invoiceDate = new Date(d.getFullYear(), d.getMonth(), 1)
 
-  const paidCount = transactions.filter(t => t.paid).length
-  const totalCount = transactions.length
+    if (purchaseDay > closingDay) {
+      invoiceDate.setMonth(invoiceDate.getMonth() + 1)
+    }
 
-  let status = 'ABERTA'
-  if (totalCount > 0 && paidCount === totalCount) {
-    status = 'PAGA'
-  } else if (paidCount > 0) {
-    status = 'PARCIAL'
+    const y = invoiceDate.getFullYear()
+    const m = String(invoiceDate.getMonth() + 1).padStart(2, '0')
+    return `${y}-${m}`
   }
 
-  async function payInvoice() {
-    if (status === 'PAGA') return
+  function invoicePeriod(invoiceMonth, closingDay) {
+    const [y, m] = invoiceMonth.split('-').map(Number)
+    const end = new Date(y, m - 1, closingDay)
+    const start = new Date(end)
+    start.setMonth(start.getMonth() - 1)
+    start.setDate(closingDay + 1)
 
-    const confirm = window.confirm(
-      status === 'PARCIAL'
-        ? 'Pagar o restante da fatura?'
-        : 'Pagar fatura completa?'
+    const fmt = d =>
+      d.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+      })
+
+    return `${fmt(start)} → ${fmt(end)}`
+  }
+
+  function groupInvoices() {
+    const map = {}
+    cards.forEach(card => (map[card.id] = {}))
+
+    transactions.forEach(tx => {
+      const card = cards.find(c => c.id === tx.card_id)
+      if (!card) return
+
+      const month = resolveInvoiceMonth(tx, card.closing_day)
+      if (!map[card.id][month]) map[card.id][month] = []
+      map[card.id][month].push(tx)
+    })
+
+    return map
+  }
+
+  function getOriginMonth(txs) {
+    if (!txs.length) return null
+
+    const months = txs.map(tx =>
+      new Date(tx.date).toISOString().slice(0, 7)
     )
-    if (!confirm) return
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    return months.sort()[0] // menor mês = origem
+  }
 
-    if (!user) return
+  async function payInvoice(card, invoiceMonth, txs) {
+    if (!txs.length) return
+    if (!window.confirm('Pagar esta fatura?')) return
 
-    const { start, end } = getInvoiceRange()
+    setFading(prev => ({
+      ...prev,
+      [`${card.id}-${invoiceMonth}`]: true,
+    }))
+
+    const ids = txs.map(t => t.id)
 
     await supabase
       .from('transactions')
       .update({ paid: true })
-      .eq('user_id', user.id)
-      .eq('card_id', activeCardId)
-      .eq('paid', false)
-      .gte('date', start)
-      .lte('date', end)
+      .in('id', ids)
 
-    showToast('Fatura paga com sucesso', 'success')
+    const originMonth = getOriginMonth(txs)
+
+    showToast({
+      message: `Fatura paga — ${card.name}`,
+      variant: 'success',
+      actions: [
+        {
+          label: `Ver lançamentos (${originMonth})`,
+          onClick: () => {
+            setCurrentMonth(originMonth)
+            setPage('transactions')
+          },
+        },
+      ],
+    })
+
     setRefreshBalance(v => v + 1)
-    fetchInvoice()
+    setTimeout(fetchData, 300)
   }
 
-  // 🟡 Nenhum cartão selecionado
-  if (!activeCardId) {
-    return (
-      <div style={{ maxWidth: 520 }}>
-        <Card>
-          <p className="text-muted">
-            Nenhum cartão selecionado.
-          </p>
-        </Card>
-      </div>
-    )
-  }
+  const invoicesMap = groupInvoices()
 
   return (
-    <div style={{ maxWidth: 520 }}>
+    <div style={{ maxWidth: 760 }}>
       <Card>
-        <h2>Fatura do cartão</h2>
-
-        {loading ? (
-          <p className="text-muted">Carregando…</p>
-        ) : (
-          <>
-            <p className="text-muted">
-              Fatura referência: {currentMonth}
-            </p>
-
-            <Badge
-              variant={
-                status === 'PAGA'
-                  ? 'success'
-                  : status === 'PARCIAL'
-                  ? 'warning'
-                  : 'info'
-              }
-            >
-              {status}
-            </Badge>
-
-            <strong
-              style={{
-                display: 'block',
-                marginTop: 12,
-              }}
-            >
-              Total: R$ {total.toFixed(2)}
-            </strong>
-
-            <div style={{ marginTop: 16 }}>
-              <Button
-                variant={
-                  status === 'PAGA'
-                    ? 'ghost'
-                    : 'danger'
-                }
-                disabled={status === 'PAGA'}
-                onClick={payInvoice}
-              >
-                {status === 'PAGA'
-                  ? 'Fatura paga'
-                  : 'Pagar fatura'}
-              </Button>
-            </div>
-          </>
-        )}
+        <h2>Faturas</h2>
+        <p className="text-muted">
+          Mês de vencimento: {currentMonth}
+        </p>
       </Card>
+
+      {!loading &&
+        cards.map(card => {
+          const txs =
+            invoicesMap[card.id]?.[currentMonth] || []
+
+          const total = txs.reduce(
+            (s, t) => s + Math.abs(t.amount),
+            0
+          )
+
+          const paidCount = txs.filter(t => t.paid).length
+          let status = 'VAZIA'
+          if (txs.length > 0) {
+            status =
+              paidCount === txs.length
+                ? 'PAGA'
+                : paidCount > 0
+                ? 'PARCIAL'
+                : 'ABERTA'
+          }
+
+          return (
+            <Card key={card.id}>
+              <div style={{ marginBottom: 12 }}>
+                <h3 style={{ marginBottom: 6 }}>
+                  {card.name}
+                </h3>
+
+                <Badge
+                  variant={
+                    status === 'PAGA'
+                      ? 'success'
+                      : status === 'PARCIAL'
+                      ? 'warning'
+                      : status === 'ABERTA'
+                      ? 'info'
+                      : 'ghost'
+                  }
+                >
+                  {status}
+                </Badge>
+
+                <div
+                  className="text-muted"
+                  style={{ fontSize: 13, marginTop: 6 }}
+                >
+                  {invoicePeriod(
+                    currentMonth,
+                    card.closing_day
+                  )}{' '}
+                  · vence dia {card.due_day || '—'}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <strong>
+                  Total: R$ {total.toFixed(2)}
+                </strong>
+
+                <Button
+                  variant={
+                    status === 'PAGA'
+                      ? 'ghost'
+                      : 'danger'
+                  }
+                  disabled={
+                    status === 'PAGA' ||
+                    txs.length === 0
+                  }
+                  onClick={() =>
+                    payInvoice(
+                      card,
+                      currentMonth,
+                      txs
+                    )
+                  }
+                >
+                  {status === 'PAGA'
+                    ? 'Fatura paga'
+                    : 'Pagar fatura'}
+                </Button>
+              </div>
+
+              {txs.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  {txs.map(tx => (
+                    <div
+                      key={tx.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns:
+                          '1fr auto',
+                        fontSize: 13,
+                      }}
+                    >
+                      <span>{tx.name}</span>
+                      <span>
+                        R${' '}
+                        {Math.abs(tx.amount).toFixed(
+                          2
+                        )}{' '}
+                        {tx.paid ? '✓' : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )
+        })}
     </div>
   )
 }

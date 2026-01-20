@@ -39,7 +39,7 @@ export default function Sidebar({
   ]
 
   const secondary = [
-    { id: 'commitments', label: 'Recorrentes' },
+
     { id: 'sporadic', label: 'Lançamento único' },
     { id: 'card-expense', label: 'Compra parcelada' },
   ]

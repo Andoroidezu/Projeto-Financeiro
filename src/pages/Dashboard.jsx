@@ -7,7 +7,6 @@ import Transactions from './Transactions'
 import Cards from './Cards'
 import CardInvoice from './CardInvoice'
 import MonthlyReport from './MonthlyReport'
-import Commitments from './Commitments'
 import SporadicTransaction from './SporadicTransaction'
 import CardExpense from './CardExpense'
 import Settings from './Settings'
@@ -75,14 +74,8 @@ export default function Dashboard() {
       {page === 'invoice' && (
         <CardInvoice
           currentMonth={currentMonth}
-          activeCardId={activeCardId}
-          setRefreshBalance={setRefreshBalance}
-        />
-      )}
-
-      {page === 'commitments' && (
-        <Commitments
-          currentMonth={currentMonth}
+          setCurrentMonth={setCurrentMonth}
+          setPage={setPage}
           setRefreshBalance={setRefreshBalance}
         />
       )}
