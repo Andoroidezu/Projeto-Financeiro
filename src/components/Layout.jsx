@@ -60,73 +60,83 @@ export default function Layout({
           background: 'var(--bg)',
         }}
       >
-        {/* TOP BAR */}
+        {/* TOP BAR — STICKY */}
         <div
           style={{
-            padding: '12px 24px',
+            position: 'sticky',
+            top: 0,
+            zIndex: 20,
+            background: 'var(--bg)',
             borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
           }}
         >
-          {/* CONTROLE DE MÊS */}
           <div
             style={{
+              padding: '8px 24px', // 🔽 mais slim
               display: 'flex',
+              justifyContent: 'space-between',
               alignItems: 'center',
-              gap: 8,
             }}
           >
-            <Button
-              variant="ghost"
-              onClick={() => changeMonth(-1)}
-            >
-              ◀
-            </Button>
-
-            <strong
+            {/* CONTROLE DE MÊS */}
+            <div
               style={{
-                minWidth: 140,
-                textAlign: 'center',
-                textTransform: 'capitalize',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              {formatMonthLabel(currentMonth)}
-            </strong>
+              <Button
+                variant="ghost"
+                onClick={() => changeMonth(-1)}
+              >
+                ◀
+              </Button>
 
-            <Button
-              variant="ghost"
-              onClick={() => changeMonth(1)}
-            >
-              ▶
-            </Button>
+              <strong
+                style={{
+                  minWidth: 140,
+                  textAlign: 'center',
+                  textTransform: 'capitalize',
+                  fontSize: 14,
+                }}
+              >
+                {formatMonthLabel(currentMonth)}
+              </strong>
 
-            {/* BOTÃO CALENDÁRIO */}
-            <Button
-              variant="ghost"
-              onClick={() =>
-                monthInputRef.current?.showPicker()
-              }
-              title="Selecionar mês"
-            >
-              📅
-            </Button>
+              <Button
+                variant="ghost"
+                onClick={() => changeMonth(1)}
+              >
+                ▶
+              </Button>
 
-            {/* INPUT INVISÍVEL */}
-            <input
-              ref={monthInputRef}
-              type="month"
-              value={currentMonth}
-              onChange={e =>
-                setCurrentMonth(e.target.value)
-              }
-              style={{
-                position: 'absolute',
-                opacity: 0,
-                pointerEvents: 'none',
-              }}
-            />
+              {/* BOTÃO CALENDÁRIO */}
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  monthInputRef.current?.showPicker()
+                }
+                title="Selecionar mês"
+              >
+                📅
+              </Button>
+
+              {/* INPUT INVISÍVEL */}
+              <input
+                ref={monthInputRef}
+                type="month"
+                value={currentMonth}
+                onChange={e =>
+                  setCurrentMonth(e.target.value)
+                }
+                style={{
+                  position: 'absolute',
+                  opacity: 0,
+                  pointerEvents: 'none',
+                }}
+              />
+            </div>
           </div>
         </div>
 

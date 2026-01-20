@@ -3,155 +3,187 @@ import { supabase } from '../supabase'
 import Card from '../ui/Card'
 import Button from '../ui/Button'
 import { useToast } from '../ui/ToastProvider'
-import { useDebug } from '../debug/DebugProvider'
-
-/*
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧭 GUIA — COMPRA PARCELADA (PROTEÇÃO UX)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Problema resolvido aqui:
-- Clique múltiplo criando dezenas de parcelas
-
-Solução:
-- isSubmitting trava ação
-- botão desabilitado
-- loading visível
-- UX segura mesmo com backend lento
-
-Nunca remover essas proteções.
-*/
 
 export default function CardExpense({ setRefreshBalance }) {
-  const [cards, setCards] = useState([])
-  const [showForm, setShowForm] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [installments, setInstallments] = useState(1)
-  const [cardId, setCardId] = useState('')
-
   const { showToast } = useToast()
-  const debug = useDebug()
+
+  const [cards, setCards] = useState([])
+
+  const [name, setName] = useState('')
+  const [cardId, setCardId] = useState('')
+  const [date, setDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  )
+
+  const [isInstallment, setIsInstallment] = useState(false)
+  const [installments, setInstallments] = useState(2)
+  const [amount, setAmount] = useState('')
 
   useEffect(() => {
     fetchCards()
   }, [])
 
   async function fetchCards() {
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) return
 
     const { data } = await supabase
       .from('cards')
-      .select('*')
+      .select('id, name')
       .eq('user_id', user.id)
 
     setCards(data || [])
+    if (data?.length) setCardId(data[0].id)
   }
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (isSubmitting) return
 
-    if (!description || !amount || !cardId) {
+    if (!name || !amount || !cardId) {
       showToast('Preencha todos os campos', 'warning')
       return
     }
 
-    setIsSubmitting(true)
-
-    const { data: { user } } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
     if (!user) return
 
-    const total = Number(amount)
-    const perInstallment = Number((total / installments).toFixed(2))
-    const groupId = crypto.randomUUID()
+    const value = Math.abs(Number(amount))
+    const total = isInstallment ? Number(installments) : 1
 
-    try {
-      for (let i = 0; i < installments; i++) {
-        const date = new Date()
-        date.setMonth(date.getMonth() + i)
+    const baseDate = new Date(date)
+    const rows = []
 
-        const { data: tx, error: txError } = await supabase
-          .from('transactions')
-          .insert({
-            user_id: user.id,
-            name: description,
-            amount: perInstallment,
-            type: 'saida',
-            date: date.toISOString().slice(0, 10),
-            paid: false,
-            card_id: cardId,
-          })
-          .select()
-          .single()
+    for (let i = 0; i < total; i++) {
+      const d = new Date(baseDate)
+      d.setMonth(d.getMonth() + i)
 
-        if (txError) throw txError
-
-        const { error: instError } = await supabase
-          .from('installments')
-          .insert({
-            transaction_id: tx.id,
-            group_id: groupId,
-            installment_number: i + 1,
-            total_installments: installments,
-          })
-
-        if (instError) throw instError
-      }
-
-      showToast('Compra parcelada criada', 'success')
-      setShowForm(false)
-      setDescription('')
-      setAmount('')
-      setInstallments(1)
-      setCardId('')
-      setRefreshBalance(v => v + 1)
-    } catch (err) {
-      debug?.log('Erro compra parcelada', err)
-      showToast(err.message, 'error')
-    } finally {
-      setIsSubmitting(false)
+      rows.push({
+        user_id: user.id,
+        name:
+          total > 1
+            ? `${name} (${i + 1}/${total})`
+            : name,
+        amount: -value,
+        type: 'saida',
+        date: d.toISOString().slice(0, 10),
+        paid: false,
+        card_id: cardId,
+      })
     }
+
+    const { error } = await supabase
+      .from('transactions')
+      .insert(rows)
+
+    if (error) {
+      showToast('Erro ao salvar compra', 'error')
+      return
+    }
+
+    showToast('Compra registrada', 'success')
+
+    setName('')
+    setAmount('')
+    setInstallments(2)
+    setIsInstallment(false)
+
+    setRefreshBalance(v => v + 1)
   }
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: 520 }}>
       <Card>
-        <h2>Compra parcelada</h2>
+        <h2>Compra no cartão</h2>
         <p className="text-muted">
-          Compras no cartão divididas em parcelas.
+          Registre compras no crédito, parceladas ou não.
         </p>
       </Card>
 
       <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <strong>Criar compra</strong>
-          <Button variant="ghost" onClick={() => setShowForm(!showForm)}>
-            {showForm ? 'Cancelar' : 'Nova'}
+        <form onSubmit={handleSubmit}>
+          <input
+            placeholder="Descrição da compra"
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+
+          <select
+            value={cardId}
+            onChange={e => setCardId(e.target.value)}
+          >
+            {cards.map(card => (
+              <option key={card.id} value={card.id}>
+                {card.name}
+              </option>
+            ))}
+          </select>
+
+          <label style={{ fontSize: 13 }}>
+            Data da compra
+          </label>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+          />
+
+          {/* CHECKBOX PEQUENO E ALINHADO */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              marginTop: 6,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isInstallment}
+              onChange={e =>
+                setIsInstallment(e.target.checked)
+              }
+              style={{
+                width: 14,
+                height: 14,
+                margin: 0,
+              }}
+            />
+            <span style={{ fontSize: 14 }}>
+              Parcelada
+            </span>
+          </div>
+
+          {isInstallment && (
+            <input
+              type="number"
+              min="2"
+              placeholder="Quantidade de parcelas"
+              value={installments}
+              onChange={e =>
+                setInstallments(e.target.value)
+              }
+            />
+          )}
+
+          <input
+            type="number"
+            placeholder={
+              isInstallment
+                ? 'Valor de cada parcela'
+                : 'Valor da compra'
+            }
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+          />
+
+          <Button type="submit">
+            Salvar compra
           </Button>
-        </div>
-
-        {showForm && (
-          <form onSubmit={handleSubmit}>
-            <input placeholder="Descrição" value={description} onChange={e => setDescription(e.target.value)} />
-            <input type="number" placeholder="Valor total" value={amount} onChange={e => setAmount(e.target.value)} />
-            <input type="number" min={1} placeholder="Parcelas" value={installments} onChange={e => setInstallments(Number(e.target.value))} />
-
-            <select value={cardId} onChange={e => setCardId(e.target.value)}>
-              <option value="">Selecione o cartão</option>
-              {cards.map(card => (
-                <option key={card.id} value={card.id}>{card.name}</option>
-              ))}
-            </select>
-
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Processando…' : 'Salvar compra'}
-            </Button>
-          </form>
-        )}
+        </form>
       </Card>
     </div>
   )
